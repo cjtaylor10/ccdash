@@ -137,6 +137,10 @@ pub struct SessionLaunchParams {
     pub worktree: Option<String>,
     /// Command override. Defaults to `claude` when absent.
     pub command: Option<String>,
+    /// One-shot token returned in a prior `PortConflictData`. When present,
+    /// skips conflict gating for this launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -147,6 +151,81 @@ pub struct SessionLaunchResult {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct SessionKillParams {
     pub tmux_session_id: String,
+}
+
+// === Ports ===
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PortBinding {
+    pub port: u16,
+    /// `tcp` (only TCP listeners scanned in Phase 2).
+    pub protocol: String,
+    /// PID of the process holding the port, or None if unknown.
+    pub pid: Option<i32>,
+    /// Command name from lsof (e.g. "node").
+    pub command: Option<String>,
+    /// ProjectId of the owning project, if we can correlate.
+    pub project_id: Option<ProjectId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeclaredPort {
+    pub project_id: ProjectId,
+    pub port: u16,
+    /// Source file (relative to project root) the port was declared in.
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PortListResult {
+    pub running: Vec<PortBinding>,
+    pub declared: Vec<DeclaredPort>,
+}
+
+/// Returned in `RpcError::data` when `session.launch` would conflict.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PortConflictData {
+    pub conflicts: Vec<PortConflict>,
+    /// One-shot token. Re-send `session.launch` with `force_token = Some(this)` to bypass.
+    pub force_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PortConflict {
+    pub port: u16,
+    /// Description of who is using the port now (e.g. "node (pid 12345) — project Loanplatform").
+    pub holder: String,
+}
+
+// === Plans ===
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Plan {
+    pub path: std::path::PathBuf,
+    pub title: String,
+    pub phases: Vec<PlanPhase>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanPhase {
+    pub name: String,
+    pub tasks: Vec<PlanTask>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanTask {
+    pub title: String,
+    pub done: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PlanGetParams {
+    pub project_id: ProjectId,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PlanGetResult {
+    pub plans: Vec<Plan>,
 }
 
 /// Protocol version this build of `ccdash-core` understands.
