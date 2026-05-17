@@ -51,33 +51,31 @@ impl Default for Manager {
     }
 }
 
-fn scan_dir(dir: &Path) -> impl std::future::Future<Output = Vec<Plan>> + '_ {
-    async move {
-        let mut out = Vec::new();
-        let mut entries = match fs::read_dir(dir).await {
-            Ok(e) => e,
-            Err(_) => return out,
-        };
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            match entry.file_type().await {
-                Ok(ft) if ft.is_file() => {
-                    if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                        continue;
-                    }
-                    if let Ok(text) = fs::read_to_string(&path).await {
-                        out.push(parser::parse(&path, &text));
-                    }
+async fn scan_dir(dir: &Path) -> Vec<Plan> {
+    let mut out = Vec::new();
+    let mut entries = match fs::read_dir(dir).await {
+        Ok(e) => e,
+        Err(_) => return out,
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        match entry.file_type().await {
+            Ok(ft) if ft.is_file() => {
+                if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
                 }
-                Ok(ft) if ft.is_dir() => {
-                    let sub_plans: Vec<Plan> = Box::pin(scan_dir(&path)).await;
-                    out.extend(sub_plans);
+                if let Ok(text) = fs::read_to_string(&path).await {
+                    out.push(parser::parse(&path, &text));
                 }
-                _ => {}
             }
+            Ok(ft) if ft.is_dir() => {
+                let sub_plans: Vec<Plan> = Box::pin(scan_dir(&path)).await;
+                out.extend(sub_plans);
+            }
+            _ => {}
         }
-        out
     }
+    out
 }
 
 #[cfg(test)]
@@ -92,8 +90,16 @@ mod tests {
         let plans = dir.path().join("docs/superpowers/plans");
         std::fs::create_dir_all(&specs).unwrap();
         std::fs::create_dir_all(&plans).unwrap();
-        std::fs::write(specs.join("spec-a.md"), "# Spec A\n## Phase 1: x\n- [ ] t\n").unwrap();
-        std::fs::write(plans.join("plan-b.md"), "# Plan B\n## Phase 1: y\n- [x] q\n").unwrap();
+        std::fs::write(
+            specs.join("spec-a.md"),
+            "# Spec A\n## Phase 1: x\n- [ ] t\n",
+        )
+        .unwrap();
+        std::fs::write(
+            plans.join("plan-b.md"),
+            "# Plan B\n## Phase 1: y\n- [x] q\n",
+        )
+        .unwrap();
 
         let mgr = Manager::new();
         let pid = ProjectId("p1".into());

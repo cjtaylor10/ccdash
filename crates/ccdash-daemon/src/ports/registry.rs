@@ -99,7 +99,11 @@ mod tests {
     #[tokio::test]
     async fn conflicts_for_returns_running_holders() {
         let dir = tempdir().unwrap();
-        let projects = Arc::new(ProjectsRegistry::load(dir.path().join("p.toml")).await.unwrap());
+        let projects = Arc::new(
+            ProjectsRegistry::load(dir.path().join("p.toml"))
+                .await
+                .unwrap(),
+        );
         let reg = Registry::new(projects);
 
         *reg.running.write().await = vec![PortBinding {
@@ -126,7 +130,11 @@ mod tests {
         // even if the running port was previously labeled with the same project_id
         // (the labeling is heuristic, not authoritative).
         let dir = tempdir().unwrap();
-        let projects = Arc::new(ProjectsRegistry::load(dir.path().join("p.toml")).await.unwrap());
+        let projects = Arc::new(
+            ProjectsRegistry::load(dir.path().join("p.toml"))
+                .await
+                .unwrap(),
+        );
         let reg = Registry::new(projects);
         let pid = ProjectId("p1".into());
 

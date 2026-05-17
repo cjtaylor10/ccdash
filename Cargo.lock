@@ -91,7 +91,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ccdash-core",
- "ccdash-daemon",
  "clap",
  "serde",
  "serde_json",

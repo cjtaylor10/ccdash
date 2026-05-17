@@ -16,7 +16,11 @@ fn tmux_available() -> bool {
 async fn ports_list_succeeds() {
     let h = Harness::spawn().await.unwrap();
     let mut c = h.connect().await.unwrap();
-    h.handshake(&mut c).await.unwrap().result.expect("handshake ok");
+    h.handshake(&mut c)
+        .await
+        .unwrap()
+        .result
+        .expect("handshake ok");
 
     let resp = c.call("ports.list", serde_json::json!({})).await.unwrap();
     assert!(resp.error.is_none(), "ports.list error: {:?}", resp.error);
@@ -33,7 +37,11 @@ async fn session_launch_conflict_returns_force_token() {
     }
     let h = Harness::spawn().await.unwrap();
     let mut c = h.connect().await.unwrap();
-    h.handshake(&mut c).await.unwrap().result.expect("handshake ok");
+    h.handshake(&mut c)
+        .await
+        .unwrap()
+        .result
+        .expect("handshake ok");
 
     // Pick an ephemeral port, then re-bind it for the duration of the test.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -64,10 +72,15 @@ async fn session_launch_conflict_returns_force_token() {
     let err = resp.error.expect("expected error");
     assert_eq!(err.code, -32002);
     let data = err.data.expect("expected conflict data");
-    let token = data["force_token"].as_str().expect("force_token").to_string();
+    let token = data["force_token"]
+        .as_str()
+        .expect("force_token")
+        .to_string();
     assert!(!token.is_empty());
     let conflicts = data["conflicts"].as_array().unwrap();
-    assert!(conflicts.iter().any(|c| c["port"].as_u64() == Some(port as u64)));
+    assert!(conflicts
+        .iter()
+        .any(|c| c["port"].as_u64() == Some(port as u64)));
 
     // Re-launch with the force token — should succeed.
     let resp2 = c

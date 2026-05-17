@@ -41,7 +41,10 @@ impl Client {
         })?;
         self.call(
             "handshake",
-            serde_json::to_value(HandshakeParams { token, client: kind })?,
+            serde_json::to_value(HandshakeParams {
+                token,
+                client: kind,
+            })?,
         )
         .await
     }

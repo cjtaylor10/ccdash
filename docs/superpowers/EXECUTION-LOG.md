@@ -64,3 +64,42 @@ no other tmux server contention).
 
 **Tag:** `phase-1-foundation`.
 
+## 2026-05-17 — Phase 2 (CLI + ports + plans) — Complete
+
+**Result:** `ccdash` CLI binary fully functional with 7 subcommands. Daemon now
+detects port conflicts on `session.launch` and returns one-shot `force_token`s
+clients can use to bypass. Markdown plan files under `docs/superpowers/{specs,plans}/`
+are parsed into structured `Plan { title, phases: [{name, tasks:[{title,done}]}] }`
+records and returned via `plans.get`.
+
+**Plan deviations recorded:**
+
+1. **`notify` watcher deferred.** Implemented refresh-on-read in `plans::Manager`
+   instead — daemon re-scans the plan files every time `plans.get` is called.
+   `plans.get` is on-demand from clients, so this is adequate for v2. Live
+   watching gets deferred to a later phase if needed.
+
+2. **`conflicts_for` no longer skips self-owned ports.** The original design
+   stamped `project_id` on running ports during correlation (a heuristic
+   labeling), then excluded "self-owned" ports from conflicts. But two listeners
+   cannot share a port, so any overlap is a real conflict regardless of label —
+   the integration test that hits this caught the false negative immediately.
+   Simplified to: any running port matching a declared port is a conflict.
+
+3. **Cross-crate `CARGO_BIN_EXE_<bin>` doesn't exist.** Plan called for
+   `env!("CARGO_BIN_EXE_ccdash-daemon")` in ccdash-cli's smoke test, but Cargo
+   only sets that for binaries in the same crate. Resolved by computing the
+   daemon path relative to the CLI binary's parent dir (both are in
+   `target/<profile>/`). Test still runs to completion; daemon prerequisites
+   are caught by an explicit `assert!(daemon_bin.exists(), ...)` with a helpful
+   error message.
+
+4. **Clippy `regex-in-loop` warning.** The original `scan_*` functions in
+   `ports::declared` compiled their regexes inside per-call loops. Hoisted to
+   `LazyLock<Regex>` module-level statics.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean, `cargo clippy --workspace --all-targets -- -D warnings` clean, `cargo test --workspace` → 82 passed / 0 failed / 1 ignored.
+
+**Tag:** `phase-2-done`.
+
+

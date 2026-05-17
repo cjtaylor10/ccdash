@@ -34,17 +34,16 @@ pub fn parse(path: &Path, text: &str) -> Plan {
                 current_text.clear();
                 if level == HeadingLevel::H1 && title.is_none() {
                     title = Some(text);
-                } else if level == HeadingLevel::H2 || level == HeadingLevel::H3 {
-                    if text.starts_with("Phase ")
+                } else if (level == HeadingLevel::H2 || level == HeadingLevel::H3)
+                    && (text.starts_with("Phase ")
                         || text.starts_with("Task ")
-                        || text.starts_with("Section ")
+                        || text.starts_with("Section "))
                     {
                         phases.push(PlanPhase {
                             name: text,
                             tasks: Vec::new(),
                         });
                     }
-                }
             }
             Event::Start(Tag::Item) => {
                 in_list_item = true;
@@ -143,7 +142,10 @@ mod tests {
 
     #[test]
     fn falls_back_to_filename_title() {
-        let p = parse(Path::new("/tmp/cool-thing.md"), "## Phase 1: foo\n- [ ] x\n");
+        let p = parse(
+            Path::new("/tmp/cool-thing.md"),
+            "## Phase 1: foo\n- [ ] x\n",
+        );
         assert_eq!(p.title, "cool-thing");
     }
 

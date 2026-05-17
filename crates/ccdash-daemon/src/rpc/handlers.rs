@@ -121,44 +121,46 @@ pub async fn handle_session_launch(
 
     // Conflict gating: refresh ports, look for conflicts, return PortConflictData
     // in error.data unless caller supplied a valid force_token.
-    if params.force_token.is_none() {
-        state
-            .ports
-            .refresh()
-            .await
-            .map_err(|e| err(E_INTERNAL, e.to_string()))?;
-        let conflicts = state.ports.conflicts_for(&project.id).await;
-        if !conflicts.is_empty() {
-            let token: String = ccdash_core::auth::generate_token();
-            state.conflict_tokens.lock().await.insert(token.clone());
-            let data = ccdash_core::protocol::PortConflictData {
-                conflicts: conflicts
-                    .into_iter()
-                    .map(|(port, binding)| ccdash_core::protocol::PortConflict {
-                        port,
-                        holder: format!(
-                            "{} (pid {})",
-                            binding.command.unwrap_or_else(|| "?".into()),
-                            binding
-                                .pid
-                                .map(|p| p.to_string())
-                                .unwrap_or_else(|| "?".into())
-                        ),
-                    })
-                    .collect(),
-                force_token: token,
-            };
-            return Err(RpcError {
-                code: -32002,
-                message: "port conflict; pass force_token to bypass".into(),
-                data: Some(serde_json::to_value(data).unwrap()),
-            });
+    match &params.force_token {
+        Some(supplied) => {
+            let mut tokens = state.conflict_tokens.lock().await;
+            if !tokens.remove(supplied) {
+                return Err(err(E_AUTH, "invalid or expired force_token"));
+            }
         }
-    } else {
-        let supplied = params.force_token.as_ref().unwrap().clone();
-        let mut tokens = state.conflict_tokens.lock().await;
-        if !tokens.remove(&supplied) {
-            return Err(err(E_AUTH, "invalid or expired force_token"));
+        None => {
+            state
+                .ports
+                .refresh()
+                .await
+                .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+            let conflicts = state.ports.conflicts_for(&project.id).await;
+            if !conflicts.is_empty() {
+                let token: String = ccdash_core::auth::generate_token();
+                state.conflict_tokens.lock().await.insert(token.clone());
+                let data = ccdash_core::protocol::PortConflictData {
+                    conflicts: conflicts
+                        .into_iter()
+                        .map(|(port, binding)| ccdash_core::protocol::PortConflict {
+                            port,
+                            holder: format!(
+                                "{} (pid {})",
+                                binding.command.unwrap_or_else(|| "?".into()),
+                                binding
+                                    .pid
+                                    .map(|p| p.to_string())
+                                    .unwrap_or_else(|| "?".into())
+                            ),
+                        })
+                        .collect(),
+                    force_token: token,
+                };
+                return Err(RpcError {
+                    code: -32002,
+                    message: "port conflict; pass force_token to bypass".into(),
+                    data: Some(serde_json::to_value(data).unwrap()),
+                });
+            }
         }
     }
 

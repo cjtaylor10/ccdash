@@ -19,7 +19,11 @@ fn cli_status_round_trip() {
         .parent()
         .expect("cli bin has parent dir")
         .join("ccdash-daemon");
-    assert!(cli_bin.exists(), "cli binary missing at {}", cli_bin.display());
+    assert!(
+        cli_bin.exists(),
+        "cli binary missing at {}",
+        cli_bin.display()
+    );
     assert!(
         daemon_bin.exists(),
         "daemon binary missing at {} — run `cargo build -p ccdash-daemon` first",
@@ -62,5 +66,9 @@ fn cli_status_round_trip() {
         stdout,
         stderr
     );
-    assert!(stdout.contains("daemon: ok"), "unexpected stdout: {}", stdout);
+    assert!(
+        stdout.contains("daemon: ok"),
+        "unexpected stdout: {}",
+        stdout
+    );
 }

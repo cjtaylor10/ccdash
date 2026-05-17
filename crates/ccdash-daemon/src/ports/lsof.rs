@@ -52,8 +52,7 @@ fn parse(s: &str) -> Vec<PortBinding> {
                         .as_deref()
                         .map(|s| s.contains("LISTEN") || s == "ST=LISTEN")
                         .unwrap_or(true); // lsof was called with -sTCP:LISTEN already
-                    if is_listening
-                        && current_proto.as_deref().map(|p| p == "TCP").unwrap_or(true)
+                    if is_listening && current_proto.as_deref().map(|p| p == "TCP").unwrap_or(true)
                     {
                         out.push(PortBinding {
                             port,

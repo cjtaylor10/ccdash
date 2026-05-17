@@ -53,9 +53,7 @@ pub async fn run(socket: Option<PathBuf>, sub: Sub) -> Result<()> {
         }
         Sub::List => {
             let resp = c.call("project.list", serde_json::json!({})).await?;
-            let projects = resp
-                .result
-                .unwrap()["projects"]
+            let projects = resp.result.unwrap()["projects"]
                 .as_array()
                 .cloned()
                 .unwrap_or_default();

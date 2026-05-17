@@ -10,7 +10,16 @@ use ccdash_core::domain::ProjectId;
 use ccdash_core::protocol::DeclaredPort;
 use regex::Regex;
 use std::path::Path;
+use std::sync::LazyLock;
 use tokio::fs;
+
+static PORT_EQ_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bPORT=(\d{2,5})\b").unwrap());
+static PORT_FLAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"--port[\s=](\d{2,5})\b").unwrap());
+static ENV_PORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*[A-Z_]*PORT[A-Z_]*\s*=\s*(\d{2,5})\s*$").unwrap());
+static COMPOSE_PORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?:^|\s|"|')(\d{2,5})\s*:\s*\d{2,5}"#).unwrap());
 
 pub async fn scan(project_id: &ProjectId, project_root: &Path) -> Vec<DeclaredPort> {
     let mut out = Vec::new();
@@ -37,12 +46,10 @@ async fn scan_package_json(project_id: &ProjectId, root: &Path) -> Vec<DeclaredP
         Some(o) => o,
         None => return vec![],
     };
-    let port_eq = Regex::new(r"\bPORT=(\d{2,5})\b").unwrap();
-    let port_flag = Regex::new(r"--port[\s=](\d{2,5})\b").unwrap();
     let mut out = Vec::new();
     for (_name, val) in scripts {
         if let Some(s) = val.as_str() {
-            for cap in port_eq.captures_iter(s).chain(port_flag.captures_iter(s)) {
+            for cap in PORT_EQ_RE.captures_iter(s).chain(PORT_FLAG_RE.captures_iter(s)) {
                 if let Ok(port) = cap[1].parse::<u16>() {
                     out.push(DeclaredPort {
                         project_id: project_id.clone(),
@@ -64,9 +71,8 @@ async fn scan_env_files(project_id: &ProjectId, root: &Path) -> Vec<DeclaredPort
             Ok(s) => s,
             Err(_) => continue,
         };
-        let re = Regex::new(r"^\s*[A-Z_]*PORT[A-Z_]*\s*=\s*(\d{2,5})\s*$").unwrap();
         for line in s.lines() {
-            if let Some(cap) = re.captures(line) {
+            if let Some(cap) = ENV_PORT_RE.captures(line) {
                 if let Ok(port) = cap[1].parse::<u16>() {
                     out.push(DeclaredPort {
                         project_id: project_id.clone(),
@@ -93,7 +99,6 @@ async fn scan_docker_compose(project_id: &ProjectId, root: &Path) -> Vec<Declare
             Ok(s) => s,
             Err(_) => continue,
         };
-        let re = Regex::new(r#"(?:^|\s|"|')(\d{2,5})\s*:\s*\d{2,5}"#).unwrap();
         let mut in_ports = false;
         for line in s.lines() {
             let trimmed = line.trim_start();
@@ -106,7 +111,7 @@ async fn scan_docker_compose(project_id: &ProjectId, root: &Path) -> Vec<Declare
                     in_ports = false;
                     continue;
                 }
-                for cap in re.captures_iter(line) {
+                for cap in COMPOSE_PORT_RE.captures_iter(line) {
                     if let Ok(port) = cap[1].parse::<u16>() {
                         out.push(DeclaredPort {
                             project_id: project_id.clone(),
@@ -127,10 +132,9 @@ async fn scan_procfile(project_id: &ProjectId, root: &Path) -> Vec<DeclaredPort>
         Ok(s) => s,
         Err(_) => return vec![],
     };
-    let re = Regex::new(r"\bPORT=(\d{2,5})\b").unwrap();
     let mut out = Vec::new();
     for line in s.lines() {
-        for cap in re.captures_iter(line) {
+        for cap in PORT_EQ_RE.captures_iter(line) {
             if let Ok(port) = cap[1].parse::<u16>() {
                 out.push(DeclaredPort {
                     project_id: project_id.clone(),
