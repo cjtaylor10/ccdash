@@ -1,7 +1,7 @@
 class Ccdash < Formula
   desc "Local desktop dashboard for managing Claude Code sessions, projects, and ports"
   homepage "https://github.com/cjtaylor10/ccdash"
-  version "0.1.0"
+  version "0.1.1"
 
   # Source-build formula. When precompiled release artifacts are hosted,
   # replace `url` and update `sha256`.
