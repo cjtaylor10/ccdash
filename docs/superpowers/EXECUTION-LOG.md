@@ -545,4 +545,52 @@ it). Empty-state UI when no projects. User must click to confirm.
 
 **Tags:** `phase-8-done`, `v0.4.0`.
 
+## 2026-05-17 — Phase 9 (Embedded browser preview) — Complete
+
+**Result:** New top-level "Browser" tab (4th, after Sessions/Ports/Plans).
+Auto-detects loopback URLs from both running TCP listeners (Ports tab
+data) and live terminal output via `extractLocalUrls`. Iframe-based
+preview with back/forward/reload chrome and "Open in external browser".
+
+**Design decisions (confirmed via AskUserQuestion):**
+- Top-level tab over per-terminal pane.
+- URL detection from both Ports tab AND terminal output.
+- Always-visible address bar.
+- Defaulted by me: iframe over nested WebviewWindow (much simpler), no
+  DevTools button (iframe DevTools is hard in Tauri; "Open in external
+  browser" gives users the escape hatch).
+
+**Plan deviations recorded:**
+
+1. **TextDecoder reused for terminal urlDetect.** The original plan only
+   referenced `new TextDecoder().decode(bytes)` per-event. Hoisted to a
+   module-level `const decoder` so the streaming-decoder state is
+   preserved across multi-byte UTF-8 splits. Passes `{ stream: true }`
+   to handle codepoints split across two output events.
+
+2. **No Vitest unit tests.** The plan called out that there's no Vitest
+   setup yet and a regex test would need scaffolding. Skipped for v0.5;
+   `extractLocalUrls` is small enough to review by inspection.
+
+3. **Ports → URLs synthesis assumes loopback.** The daemon's ports
+   module collects TCP listeners regardless of bind address; we
+   synthesize `http://localhost:PORT` for every running entry. Listeners
+   bound to non-loopback addresses may not be reachable that way, but
+   for dev servers running locally this is reliable. Worst case: an
+   entry in the rail that doesn't load.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 84 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` → `packaging/dist/ccdash-0.5.0.tar.gz`,
+formula sha256 = `a7b970fcd79da6ab16fcce2a8f2a6530e4720825a945ddcdc65b499f10dd9cb4`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.5.0`,
+`ccdash status` reports daemon ok.
+
+**Still NOT click-verified:** the Browser tab visually, including
+URL detection lighting up from a real dev server. User must click.
+
+**Tags:** `phase-9-done`, `v0.5.0`.
+
 
