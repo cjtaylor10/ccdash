@@ -94,6 +94,20 @@ pub async fn handle_session_list(state: &AppState) -> Result<SessionListResult, 
     Ok(SessionListResult { sessions: current })
 }
 
+pub async fn handle_ports_list(
+    state: &AppState,
+) -> Result<ccdash_core::protocol::PortListResult, RpcError> {
+    state
+        .ports
+        .refresh()
+        .await
+        .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+    Ok(ccdash_core::protocol::PortListResult {
+        running: state.ports.running().await,
+        declared: state.ports.declared().await,
+    })
+}
+
 pub async fn handle_session_launch(
     params: SessionLaunchParams,
     state: &AppState,
@@ -102,7 +116,52 @@ pub async fn handle_session_launch(
     let project = projects
         .iter()
         .find(|p| p.id == params.project_id)
-        .ok_or_else(|| err(E_NOT_FOUND, "no such project"))?;
+        .ok_or_else(|| err(E_NOT_FOUND, "no such project"))?
+        .clone();
+
+    // Conflict gating: refresh ports, look for conflicts, return PortConflictData
+    // in error.data unless caller supplied a valid force_token.
+    if params.force_token.is_none() {
+        state
+            .ports
+            .refresh()
+            .await
+            .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+        let conflicts = state.ports.conflicts_for(&project.id).await;
+        if !conflicts.is_empty() {
+            let token: String = ccdash_core::auth::generate_token();
+            state.conflict_tokens.lock().await.insert(token.clone());
+            let data = ccdash_core::protocol::PortConflictData {
+                conflicts: conflicts
+                    .into_iter()
+                    .map(|(port, binding)| ccdash_core::protocol::PortConflict {
+                        port,
+                        holder: format!(
+                            "{} (pid {})",
+                            binding.command.unwrap_or_else(|| "?".into()),
+                            binding
+                                .pid
+                                .map(|p| p.to_string())
+                                .unwrap_or_else(|| "?".into())
+                        ),
+                    })
+                    .collect(),
+                force_token: token,
+            };
+            return Err(RpcError {
+                code: -32002,
+                message: "port conflict; pass force_token to bypass".into(),
+                data: Some(serde_json::to_value(data).unwrap()),
+            });
+        }
+    } else {
+        let supplied = params.force_token.as_ref().unwrap().clone();
+        let mut tokens = state.conflict_tokens.lock().await;
+        if !tokens.remove(&supplied) {
+            return Err(err(E_AUTH, "invalid or expired force_token"));
+        }
+    }
+
     let worktree_name = params
         .worktree
         .clone()
@@ -117,8 +176,6 @@ pub async fn handle_session_launch(
 
     let safe_wt = sanitize(&worktree_name);
     let safe_proj = sanitize(&project.name);
-    // Use `_` as separator: tmux silently replaces `:` in session names anyway,
-    // so picking `_` keeps our internal name in sync with what `tmux ls` shows.
     let name = format!("ccdash_{}_{}", safe_proj, safe_wt);
 
     let session_id = tmux::new_session(&name, &cwd, &cmd)

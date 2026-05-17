@@ -114,6 +114,10 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
                 Err(e) => Response::err(id, e),
             }
         }
+        "ports.list" => match handlers::handle_ports_list(state).await {
+            Ok(r) => Response::ok(id, serde_json::to_value(r).unwrap()),
+            Err(e) => Response::err(id, e),
+        },
         other => Response::err(id, err(-32601, format!("method not found: {}", other))),
     }
 }

@@ -1,38 +1,47 @@
 //! Composite daemon state. Cheap to clone (Arcs all the way down).
 
 use crate::broadcast::Bus;
-use crate::projects::Registry;
+use crate::ports::Registry as PortsRegistry;
+use crate::projects::Registry as ProjectsRegistry;
 use crate::sessions::Manager;
 use anyhow::Result;
 use ccdash_core::paths;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub projects: Arc<Registry>,
+    pub projects: Arc<ProjectsRegistry>,
     pub sessions: Arc<Manager>,
+    pub ports: Arc<PortsRegistry>,
     pub bus: Bus,
     pub auth_token: Arc<String>,
-    #[allow(dead_code)] // read by file watchers + ports module in Phase 2
+    #[allow(dead_code)] // read by file watchers + ports module in Phase 2+
     pub data_dir: PathBuf,
+    /// One-shot tokens issued in `PortConflictData`. A token in this set lets the
+    /// next `session.launch` bypass conflict gating.
+    pub conflict_tokens: Arc<Mutex<HashSet<String>>>,
 }
 
 impl AppState {
     pub async fn bootstrap(data_dir: PathBuf) -> Result<Self> {
         let token = ccdash_core::auth::ensure_token(&data_dir.join("auth"))?;
-        let projects = Registry::load(data_dir.join("projects.toml")).await?;
-        let sessions = Manager::load(data_dir.join("sessions.toml")).await?;
+        let projects = Arc::new(ProjectsRegistry::load(data_dir.join("projects.toml")).await?);
+        let sessions = Arc::new(Manager::load(data_dir.join("sessions.toml")).await?);
+        let ports = Arc::new(PortsRegistry::new(projects.clone()));
         Ok(Self {
-            projects: Arc::new(projects),
-            sessions: Arc::new(sessions),
+            projects,
+            sessions,
+            ports,
             bus: Bus::new(),
             auth_token: Arc::new(token),
             data_dir,
+            conflict_tokens: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
-    /// For tests: build a state rooted at the given dir, isolated from the user's real `~/.ccdash`.
     #[cfg(test)]
     pub async fn for_test(data_dir: PathBuf) -> Result<Self> {
         Self::bootstrap(data_dir).await
