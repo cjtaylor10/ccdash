@@ -677,4 +677,12 @@ performance under many projects.
 
 **Tags:** `phase-10-done`, `v0.6.0`.
 
+## 2026-05-17 — Phase 11 (Signing + auto-update) — Deferred
+
+Per user direction (AskUserQuestion at start of Phase 11): skip until
+Apple Developer cert is available. Real signing + notarization + the
+Tauri 2 updater plugin all gate on cert material the autonomous run
+doesn't have access to. Captured in TODO; no code or version
+changes for this slot. Jumping to Phase 12 with version v0.7.0.
+
 

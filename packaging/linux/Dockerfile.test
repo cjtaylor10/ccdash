@@ -1,0 +1,70 @@
+# Verifies ccdash-daemon + ccdash-cli + ccdash-core build cleanly on Linux
+# and that all 85 tests pass. Run from repo root:
+#   docker build -f packaging/linux/Dockerfile.test -t ccdash-linux-test .
+# Or, to also bake the UI build:
+#   docker build -f packaging/linux/Dockerfile.test --target full -t ccdash-linux-full .
+#
+# The Tauri UI bundle stage installs webkit2gtk-4.1 + dependencies and
+# performs `cargo build --release -p ccdash-ui`. This is heavy (~600MB of
+# system deps + a long compile) but works on a clean Ubuntu 22.04.
+
+FROM ubuntu:22.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CARGO_TERM_COLOR=always
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    curl \
+    git \
+    tmux \
+    lsof \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Rust toolchain (stable). MSRV is 1.83 per workspace.package.rust-version,
+# stable as of writing is >= 1.83.
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile default
+ENV PATH=/root/.cargo/bin:$PATH
+RUN rustup component add clippy rustfmt
+
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY apps ./apps
+
+# Stage 1: daemon + CLI + core only. Skips the UI crate entirely.
+FROM base AS daemon-only
+RUN cargo fmt --all -- --check \
+ && cargo clippy -p ccdash-core -p ccdash-daemon -p ccdash-cli --all-targets -- -D warnings \
+ && cargo test -p ccdash-core -p ccdash-daemon -p ccdash-cli \
+ && cargo build --release -p ccdash-daemon -p ccdash-cli
+
+# Stage 2 (optional): full build including the Tauri UI. Requires
+# webkit2gtk-4.1, libsoup3, and a Node toolchain.
+FROM base AS full
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libwebkit2gtk-4.1-dev \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    libsoup-3.0-dev \
+    nodejs \
+    npm \
+ && rm -rf /var/lib/apt/lists/*
+
+# pnpm via corepack
+RUN npm install -g pnpm@10
+
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY apps ./apps
+COPY packaging ./packaging
+
+RUN (cd apps/ccdash-ui/ui && pnpm install --frozen-lockfile --ignore-scripts && pnpm run build) \
+ && cargo build --release -p ccdash-daemon -p ccdash-cli -p ccdash-ui
+
+CMD ["bash"]
