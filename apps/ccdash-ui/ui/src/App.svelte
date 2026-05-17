@@ -27,8 +27,11 @@
   import PortsView from '$lib/components/PortsView.svelte';
   import PlansView from '$lib/components/PlansView.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
+  import LaunchDialog from '$lib/components/LaunchDialog.svelte';
 
   const otherWindowList = writable<string[]>([]);
+
+  let launchOpen = false;
 
   async function log(msg: string) {
     try {
@@ -140,6 +143,7 @@
         <button class:active={$activeTab === 'plans'} on:click={() => setTab('plans')}>Plans</button>
       </div>
       <div class="actions">
+        <button class="primary" on:click={() => (launchOpen = true)}>Launch session</button>
         <select value={$mirrorTarget ?? ''} on:change={onMirrorChange}>
           <option value="">— independent —</option>
           {#each $otherWindowList as w (w)}
@@ -179,6 +183,8 @@
   </main>
 </div>
 
+<LaunchDialog bind:open={launchOpen} />
+
 <style>
   .root { display: flex; height: 100vh; }
   main { flex: 1; display: flex; flex-direction: column; }
@@ -194,6 +200,16 @@
   .tabs button { border-radius: 4px; }
   .tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
   .actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+  .actions .primary {
+    background: var(--accent);
+    color: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .actions .primary:hover { opacity: 0.9; }
   .actions select {
     background: var(--bg-elev);
     color: var(--fg);
