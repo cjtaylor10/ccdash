@@ -680,9 +680,55 @@ performance under many projects.
 ## 2026-05-17 — Phase 11 (Signing + auto-update) — Deferred
 
 Per user direction (AskUserQuestion at start of Phase 11): skip until
-Apple Developer cert is available. Real signing + notarization + the
-Tauri 2 updater plugin all gate on cert material the autonomous run
-doesn't have access to. Captured in TODO; no code or version
-changes for this slot. Jumping to Phase 12 with version v0.7.0.
+Apple Developer cert is available. v0.7.0 stays unallocated for the
+eventual signing work. Phase 12 shipped as v0.8.0.
+
+## 2026-05-17 — Phase 12 (Linux verification) — Complete
+
+**Result:** ccdash-daemon + ccdash-cli + ccdash-core build and pass all
+tests on Ubuntu 22.04 (aarch64) inside a clean Docker container. The
+full Tauri UI build path requires webkit2gtk-4.1 + GTK + libsoup3
+system deps; documented in the Dockerfile but not exercised in the
+v0.8.0 ship because it adds ~600MB of system packages and ~10 minutes
+of build time to the verification path. The lighter daemon-only path
+is what we run as the regression gate.
+
+**Real bug found via Linux test:** `lsof` is a hard runtime dep but
+wasn't documented anywhere. Without it, `ports.list` returns empty and
+the conflict-detection test panics. Now declared:
+- `depends_on "lsof"` under `on_linux do` in the formula.
+- Listed in INSTALL.md prerequisites.
+
+**Plan deviations:**
+
+1. **Version skip 0.7.0.** Phase 11 was deferred, so Phase 12 ships as
+   v0.8.0 leaving v0.7.0 open for the signing work later. The GOAL.md
+   numbering (Phase N → v0.N) is preserved.
+
+2. **Daemon-only is the verification gate, not the full build.** The
+   `full` Dockerfile target exists but takes too long for a routine
+   smoke. Daemon-only catches the realistic class of Linux regressions
+   (the lsof bug is a perfect example).
+
+3. **No proper /proc/net/tcp fallback yet.** The right long-term fix
+   for the lsof dep is to read `/proc/net/tcp` directly on Linux. Not
+   doing it now because (a) it's not the v1.0 critical path, and (b)
+   the lsof dep is universally available via apt. Captured as a future
+   improvement.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 85 passed / 0 failed / 1 ignored (macOS),
+`docker build -f packaging/linux/Dockerfile.test --target daemon-only`
+green on ubuntu:22.04/aarch64,
+formula sha256 = `089d276ac3d0d0444c697a814fb14a8f877f053d455cc6d89e2a750194e3c1b1`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.8.0`,
+`ccdash status` reports daemon ok.
+
+**Still NOT verified:** native Linux desktop UI click-test (the
+Dockerfile builds the bundle but doesn't launch it). A user on a Linux
+workstation would be the next confirmation point.
+
+**Tags:** `phase-12-done`, `v0.8.0`.
 
 
