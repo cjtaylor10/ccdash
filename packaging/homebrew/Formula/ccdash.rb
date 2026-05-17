@@ -6,7 +6,7 @@ class Ccdash < Formula
   # Source-build formula. When precompiled release artifacts are hosted,
   # replace `url` and update `sha256`.
   url "https://github.com/cjtaylor10/ccdash/archive/refs/tags/v#{version}.tar.gz"
-  sha256 "10329ec427afc8dc5f2b167b34bff0b7cfc0bf5438b21e77daa4a08c52112f7a"
+  sha256 "aa80441088be1e90ac2e1622585048c3aef9892659d078eb9af63be88c506d25"
   license "MIT"
 
   depends_on "rust" => :build
@@ -18,9 +18,13 @@ class Ccdash < Formula
   # at build time via `cargo install tauri-cli` if it isn't already on PATH.
 
   def install
-    # Build the SvelteKit frontend first; Tauri bundles it during build.
+    # Build the frontend first; Tauri bundles it during build.
+    # --ignore-scripts skips esbuild's optional install verification script
+    # (which pnpm 10 refuses to run in CI without per-project approval).
+    # esbuild's native binary is delivered via separate platform packages
+    # (@esbuild/darwin-arm64 etc.) so the install script is non-essential.
     cd "apps/ccdash-ui/ui" do
-      system "pnpm", "install", "--frozen-lockfile"
+      system "pnpm", "install", "--frozen-lockfile", "--ignore-scripts"
       system "pnpm", "run", "build"
     end
 
@@ -42,8 +46,14 @@ class Ccdash < Formula
       system "codesign", "--force", "--deep", "--sign", "-",
              "target/release/bundle/macos/ccdash.app"
       prefix.install "target/release/bundle/macos/ccdash.app"
-      bin.write_exec_script prefix/"ccdash.app/Contents/MacOS/ccdash-ui"
-      mv bin/"ccdash-ui", bin/"ccdash-ui-launch" if File.exist?(bin/"ccdash-ui")
+      # `ccdash-ui` launcher: opens the bundled .app via macOS LaunchServices.
+      # Using `open` rather than exec'ing the binary directly gives proper
+      # NSApp activation, dock icon, focus, etc.
+      (bin/"ccdash-ui").write <<~SH
+        #!/usr/bin/env bash
+        exec /usr/bin/open -W "#{prefix}/ccdash.app" "$@"
+      SH
+      chmod 0755, bin/"ccdash-ui"
     else
       bin.install "target/release/ccdash-ui"
     end
