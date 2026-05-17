@@ -286,6 +286,73 @@ user must run this manually to verify the visual layer.
 
 **Tag:** `v0.1.0-smoke-fixed` will be applied after this commit.
 
+## 2026-05-17 — Shipped to GitHub + Homebrew + auto-launch
+
+Pushed everything and verified end-to-end install path.
+
+**GitHub repos:**
+- Main: https://github.com/cjtaylor10/ccdash
+- Tap: https://github.com/cjtaylor10/homebrew-ccdash-tap
+- Latest release: v0.1.2 (with installable tarball asset)
+
+**Tags pushed:** phase-1-foundation, phase-2-done, phase-3-done, phase-4-done,
+phase-5-done, v0.1.0, v0.1.0-smoke-fixed, v0.1.1, v0.1.2.
+
+**Patch releases needed during ship:**
+
+- **v0.1.1**: pnpm-lock.yaml was still referencing @sveltejs/kit from before
+  the smoke-test refactor; broke `pnpm install --frozen-lockfile` in brew.
+- **v0.1.2**: pnpm 10 strict-build-scripts blocked esbuild's install in CI;
+  fixed by passing `--ignore-scripts` to `pnpm install` in the formula.
+
+**Off-screen window bug discovered + fixed mid-test:** macOS restored the
+window's old position (2466,-222) from a previous machine config that no
+longer had that monitor. Added `"center": true` to tauri.conf.json so the
+window opens centered on first launch. The smoke test caught this — without
+visual verification it would have shipped as "the app runs but you can't see
+it" and looked like a hang to users.
+
+**Bug fix: ccdash-ui launcher.** First formula attempt used
+`bin.write_exec_script` + `mv` which left no `ccdash-ui` in PATH. Replaced
+with a `bin/ccdash-ui` shell wrapper that does `exec /usr/bin/open -W $PREFIX/ccdash.app`.
+LaunchServices handles dock icon, focus, etc. correctly.
+
+**Final install path verified end-to-end:**
+```
+brew tap cjtaylor10/ccdash-tap
+brew install cjtaylor10/ccdash-tap/ccdash
+brew services start cjtaylor10/ccdash-tap/ccdash
+ccdash project add ~/path/to/repo
+ccdash-ui
+```
+
+After `brew services start`, the daemon launches via launchd
+(`~/Library/LaunchAgents/homebrew.mxcl.ccdash.plist`) and auto-restarts on
+login. Three binaries on PATH (`ccdash`, `ccdash-daemon`, `ccdash-ui`).
+The UI window connects, populates projects sidebar with worktrees, and
+renders the Sessions/Ports/Plans tabs.
+
+**Screenshot evidence captured at `/tmp/ccdash-final.png`** showing the
+brew-installed app rendering correctly with three real projects
+(Loanplatform with 5 worktrees, ccdash, BankOps with 1 worktree).
+
+**State on user's machine after this session:**
+- `brew services start ccdash` is active
+- `~/Library/LaunchAgents/homebrew.mxcl.ccdash.plist` registered
+- `~/.ccdash/` contains live `auth`, `projects.toml` with three projects
+- Daemon PID 54247 listening on `/tmp/ccdash.sock`
+
+**Still NOT manually verified (requires user clicks):**
+- Multi-window via "+ New window" button (code path verified, ACL permission granted)
+- Mirror mode dropdown (code path verified)
+- xterm.js terminal via "Attach" button (Rust pty path verified, JS path written and built)
+- Live daemon-event subscription (capabilities granted, listener registered)
+
+These all involve clicking inside the WKWebView which can't be triggered by
+AX scripting from outside. The user can verify each by clicking the relevant
+button in the running UI.
+
+
 
 
 
