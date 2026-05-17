@@ -412,6 +412,70 @@ picker.
 
 **Tags:** `phase-6-done`, `v0.2.0`.
 
+## 2026-05-17 — Phase 7 (Verify + polish) — Complete
 
+**Result:** Four concrete polish items shipped:
+
+1. **error.data plumbing.** `commands.rs::call_method` now returns
+   `Result<Value, UiRpcError>` where `UiRpcError = { message, data }`,
+   carrying the daemon's RPC error payload through to the frontend. Every
+   RPC-proxying Tauri command picked up the new return type.
+
+2. **Full port-conflict remediation in LaunchDialog.** When the daemon
+   returns a PortConflict, the dialog now lists colliding `{port, holder}`
+   rows and offers a "Launch anyway" button that re-submits with the
+   `force_token`. Cleared the Phase 6 deviation #1.
+
+3. **Window position clamping.** New `window_clamp` module runs on every
+   `WindowEvent::Moved` and at new-window creation. If a window's outer
+   bounds don't overlap any monitor, it snaps back to the primary monitor's
+   center. Fixes the "saved window position from a disconnected monitor"
+   class of bug.
+
+4. **Reconnect UX.** New `reconnect.ts` exponential-backoff loop (5s → 30s
+   cap). UI shows a "Disconnected from daemon — retrying in Ns" banner
+   with a "Retry now" button. Wired in App.svelte's onMount catch and on
+   the unmount cleanup.
+
+**Plan deviations recorded:**
+
+1. **Tauri Window<R> vs WebviewWindow.** The plan called for
+   `clamp_window_position(&WebviewWindow)`, but Tauri 2's `on_window_event`
+   passes `&Window<R>`. Changed the signature to be generic over Runtime
+   (`&Window<R>` where `R: Runtime`). Both Window and WebviewWindow share
+   the position / size / monitor API surface, so the function body is
+   unchanged. For new-window creation, `w.as_ref().window()` yields a
+   borrowable Window.
+
+2. **Click-test items audited via code review, not click.** Per the
+   autonomous mode, I cannot click. Walked the Attach path
+   (`Terminal.svelte` ↔ `pty.rs::open` ↔ `run_reader_loop`) — found no
+   defects. The byte path (`Vec<u8>` ↔ `number[]` ↔ `Uint8Array`) is
+   symmetric; resize wiring is correct; lifecycle cleanup is ordered
+   safely (close gates on ptyId not null). Walked the +New window path —
+   found that the existing `WebviewWindowBuilder` did not `.center()` new
+   windows, so applied that + the new clamp. Walked the mirror path —
+   chatty (250ms tick) but correct; no defects. Visual click-test still
+   needed for all three.
+
+3. **Removed `isPortConflictMessage` regex helper.** It was a stringly-typed
+   marker in v0.2.0 because error.data wasn't plumbed. Now obsolete — the
+   structured `asPortConflict()` type guard reads the data directly.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 82 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` produces `packaging/dist/ccdash-0.3.0.tar.gz`,
+formula sha256 = `3ce15960e8d845b378d105fa081661164e24297a701f29e261d9e4b0f0570219`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` succeeds on this machine,
+`ccdash status` reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** the conflict-remediation modal flow, the
+reconnect banner / retry behavior, and window-position snap-back. Code
+paths exercised by `pnpm build` and the daemon test suite. User must
+click to confirm.
+
+**Tags:** `phase-7-done`, `v0.3.0`.
 
 
