@@ -593,4 +593,88 @@ URL detection lighting up from a real dev server. User must click.
 
 **Tags:** `phase-9-done`, `v0.5.0`.
 
+## 2026-05-17 — Phase 10 (Polish + niceties) — Complete
+
+**Result:** Eight polish items shipped in v0.6.0.
+
+1. **Keyboard shortcuts.** Cmd+N (new window), Cmd+W (close), Cmd+K
+   (command palette), Cmd+L (launch dialog). `lib/keybinds.ts` installs a
+   single window keydown listener; teardown returned from onMount.
+
+2. **Command palette.** New `CommandPalette.svelte` with type-ahead
+   filter over project switches, Launch session, Add project, Tab
+   switches, +New/Close window. Arrow keys + Enter.
+
+3. **Drag-and-drop project reorder.** HTML5 drag/drop in Sidebar.
+   New daemon RPC `project.reorder { ids: [ProjectId] }`. On-disk
+   `ProjectRow` gains an `order: u32` field (default u32::MAX for
+   legacy rows so existing installs don't break). New test confirms
+   the order persists across reload.
+
+4. **Markdown rendering for plan task titles.** Used `marked` for
+   inline rendering of backticks/emphasis. Per-plan "Open in VS Code"
+   button that opens `vscode://file/{path}` via plugin-shell.
+
+5. **Session search/filter.** Filter input appears only when
+   `$sessions.length > 10`. Live-filters on name + cwd + tmux_session_id.
+
+6. **Daemon health dot.** Top-bar 10px dot — green (connected),
+   yellow (reconnecting, pulse animation), red (disconnected). Tooltip
+   names the state.
+
+7. **Theme toggle.** Auto/Dark/Light. Persisted to localStorage. CSS
+   variables in theme.css now have a `[data-theme="light"]` override.
+   `lib/theme.ts` watches `matchMedia('(prefers-color-scheme: light)')`
+   for live system-theme switches when Auto is selected.
+
+8. **Real app icon.** Python+PIL generator at `apps/ccdash-ui/icons/_generate.py`
+   emits a 1024px master + 32/64/128/256/512 PNGs + full macOS .iconset.
+   `iconutil -c icns` builds the .icns. Glyph design: rounded-corner
+   accent-color tile with a cursor inset (top-right) and bottom dock
+   bar suggesting a dashboard with a terminal cursor.
+
+Plus: worktree branch names truncated with middle-ellipsis when >24
+chars via new `lib/format.ts::truncateBranch`.
+
+**Plan deviations recorded:**
+
+1. **Light theme palette is a defensible default, not opinionated.**
+   Used standard tokens (white bg, blue accent, deep ink text). User can
+   override the CSS variables later if they want a more distinctive
+   light look.
+
+2. **Per-tab dot for unread URLs already done in Phase 9.** Skipped
+   adding another tab-level badge for "new ports detected" because the
+   Browser tab dot already covers this signal class.
+
+3. **No drag-reorder for worktrees.** Worktrees come from `git worktree
+   list` and aren't user-orderable in any meaningful sense — leave their
+   order as git presents them.
+
+4. **Marked synchronous mode.** `marked.setOptions({ async: false })`
+   so `parseInline` returns a string directly (the new marked v14 API
+   defaults to async/Promise, which breaks template usage). Caveat:
+   any custom marked extensions that ARE async would silently fall back
+   to placeholder output — we don't use extensions, so it's fine.
+
+5. **Removed unused `command` and `import { open } from '@tauri-apps/api/shell'`
+   patterns.** The `tauri-plugin-shell` v2 package is the right path; we
+   import dynamically inside `openExternal` to avoid bloating the main
+   bundle.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 85 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` → `packaging/dist/ccdash-0.6.0.tar.gz`,
+formula sha256 = `d79d5e41d88d9b1f3ca142c0d83631e191e9b74997029ea5790b435619860203`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.6.0`,
+`ccdash status` reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** all eight UX items. Especially the icon
+appearance, the drag-and-drop UX, and the command palette filter
+performance under many projects.
+
+**Tags:** `phase-10-done`, `v0.6.0`.
+
 
