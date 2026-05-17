@@ -38,6 +38,17 @@ pub fn handle_handshake(
 }
 
 pub async fn handle_project_list(state: &AppState) -> ProjectListResult {
+    // Refresh worktrees on every list call so daemon restarts + on-disk
+    // worktree changes (git worktree add/remove from outside) get picked up
+    // automatically. The git call is cheap (~milliseconds for typical repos).
+    let projects = state.projects.list().await;
+    for p in &projects {
+        if p.state != ccdash_core::domain::ProjectState::Missing {
+            if let Ok(wts) = crate::worktrees::list(&p.path).await {
+                state.projects.set_worktrees(&p.id, wts).await;
+            }
+        }
+    }
     ProjectListResult {
         projects: state.projects.list().await,
     }

@@ -4,6 +4,7 @@ use crate::client_state::ClientState;
 use ccdash_core::client::Client;
 use ccdash_core::protocol::ClientKind;
 use serde_json::Value;
+use std::ops::DerefMut;
 use tauri::State;
 
 /// Structured error returned by every RPC-proxying Tauri command.
@@ -45,15 +46,25 @@ pub async fn connect_and_handshake(state: State<'_, ClientState>) -> Result<Stri
     Ok("connected".into())
 }
 
-async fn call_method(
-    state: &State<'_, ClientState>,
+/// True if the error string looks like a broken Unix-socket transport
+/// (broken pipe, connection reset, EOF, etc.) — the kind of failure that
+/// goes away after a fresh reconnect. Used to decide whether to drop the
+/// stale Client and retry the call once.
+fn is_transport_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("writing request")
+        || m.contains("reading line")
+        || m.contains("daemon closed connection")
+        || m.contains("broken pipe")
+        || m.contains("connection reset")
+        || m.contains("connection refused")
+}
+
+async fn call_once_inner(
+    client: &mut Client,
     method: &str,
     params: Value,
 ) -> Result<Value, UiRpcError> {
-    let mut guard = state.inner.lock().await;
-    let client = guard.as_mut().ok_or_else(|| {
-        UiRpcError::message("daemon not connected — call connect_and_handshake first")
-    })?;
     let resp = client
         .call(method, params)
         .await
@@ -65,6 +76,62 @@ async fn call_method(
         });
     }
     Ok(resp.result.unwrap_or(Value::Null))
+}
+
+/// Open a fresh connection to the daemon, handshake, and store it on the
+/// shared `ClientState`. Returns an error if either step fails. Caller
+/// holds the `ClientState` lock for the duration so we don't race other
+/// in-flight calls.
+async fn reconnect(guard: &mut tokio::sync::MutexGuard<'_, Option<Client>>) -> Result<(), String> {
+    *guard.deref_mut() = None;
+    let mut fresh = Client::connect_default()
+        .await
+        .map_err(|e| format!("reconnect failed: {}", e))?;
+    let resp = fresh
+        .handshake(ClientKind::Ui)
+        .await
+        .map_err(|e| format!("reconnect handshake failed: {}", e))?;
+    if let Some(err) = resp.error {
+        return Err(format!("reconnect rejected: {}", err.message));
+    }
+    *guard.deref_mut() = Some(fresh);
+    Ok(())
+}
+
+async fn call_method(
+    state: &State<'_, ClientState>,
+    method: &str,
+    params: Value,
+) -> Result<Value, UiRpcError> {
+    let mut guard = state.inner.lock().await;
+    // First attempt against the cached client.
+    let first_err = {
+        let client = guard.as_mut().ok_or_else(|| {
+            UiRpcError::message("daemon not connected — call connect_and_handshake first")
+        })?;
+        match call_once_inner(client, method, params.clone()).await {
+            Ok(v) => return Ok(v),
+            Err(e) => e,
+        }
+    };
+    // Transparent reconnect-and-retry on transport-level failures only.
+    // Application-level errors (PortConflict, bad params, etc.) bubble as-is.
+    if !is_transport_error(&first_err.message) {
+        return Err(first_err);
+    }
+    tracing::warn!(
+        "transport error on {}: {} — reconnecting and retrying once",
+        method,
+        first_err.message
+    );
+    if let Err(e) = reconnect(&mut guard).await {
+        return Err(UiRpcError::message(format!(
+            "{} (and reconnect failed: {})",
+            first_err.message, e
+        )));
+    }
+    let client = guard.as_mut().expect("reconnect filled the slot");
+    call_once_inner(client, method, params).await
 }
 
 #[tauri::command]
