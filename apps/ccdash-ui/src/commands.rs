@@ -69,3 +69,45 @@ pub async fn plans_get(state: State<'_, ClientState>, project_id: String) -> Res
     )
     .await
 }
+
+// === Terminal commands ===
+
+use crate::pty::PtyManager;
+
+#[tauri::command]
+pub async fn terminal_open(
+    app: tauri::AppHandle,
+    pty: tauri::State<'_, PtyManager>,
+    command: Vec<String>,
+    rows: u16,
+    cols: u16,
+) -> Result<String, String> {
+    pty.open(app, command, rows, cols).await
+}
+
+#[tauri::command]
+pub async fn terminal_write(
+    pty: tauri::State<'_, PtyManager>,
+    id: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    pty.write(&id, &data).await
+}
+
+#[tauri::command]
+pub async fn terminal_resize(
+    pty: tauri::State<'_, PtyManager>,
+    id: String,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    pty.resize(&id, rows, cols).await
+}
+
+#[tauri::command]
+pub async fn terminal_close(
+    pty: tauri::State<'_, PtyManager>,
+    id: String,
+) -> Result<(), String> {
+    pty.close(&id).await
+}

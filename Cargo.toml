@@ -19,9 +19,12 @@ tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "net", "fs"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
 notify = "6"
+portable-pty = "0.8"
 pulldown-cmark = "0.12"
 rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
 regex = "1"
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }

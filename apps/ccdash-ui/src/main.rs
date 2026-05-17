@@ -5,6 +5,7 @@
 mod client_state;
 mod commands;
 mod event_bridge;
+mod pty;
 
 use tracing_subscriber::EnvFilter;
 
@@ -17,6 +18,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(client_state::ClientState::new())
+        .manage(pty::PtyManager::new())
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -30,6 +32,10 @@ fn main() {
             commands::session_list,
             commands::ports_list,
             commands::plans_get,
+            commands::terminal_open,
+            commands::terminal_write,
+            commands::terminal_resize,
+            commands::terminal_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
