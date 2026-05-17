@@ -60,10 +60,7 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
                 Ok(p) => p,
                 Err(e) => return Response::err(id, err(E_INVALID_PARAMS, e.to_string())),
             };
-            ctx.write()
-                .await
-                .subscriptions
-                .extend(params.topics.into_iter());
+            ctx.write().await.subscriptions.extend(params.topics);
             Response::ok(id, json!({"subscribed": true}))
         }
         "project.list" => {

@@ -68,7 +68,7 @@ fn parse(s: &str) -> Vec<PortBinding> {
         }
     }
     // Deduplicate by (port, pid).
-    out.sort_by(|a, b| (a.port, a.pid).cmp(&(b.port, b.pid)));
+    out.sort_by_key(|p| (p.port, p.pid));
     out.dedup_by(|a, b| a.port == b.port && a.pid == b.pid);
     out
 }
