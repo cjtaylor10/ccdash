@@ -6,6 +6,7 @@ mod client_state;
 mod commands;
 mod event_bridge;
 mod pty;
+mod window_clamp;
 mod windows;
 
 use tracing_subscriber::EnvFilter;
@@ -38,6 +39,11 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Moved(_) = event {
+                window_clamp::clamp_window_position(window);
+            }
+        })
         .manage(client_state::ClientState::new())
         .manage(pty::PtyManager::new())
         .setup(|app| {

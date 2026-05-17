@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { projects, selectedProjectId, sessions } from '$lib/stores';
-  import { sessionsApi, tauri } from '$lib/tauri';
+  import { asPortConflict, isUiRpcError, sessionsApi, tauri, type PortConflict } from '$lib/tauri';
 
   export let open = false;
 
@@ -12,6 +12,7 @@
   let command = '';
   let busy = false;
   let errMsg: string | null = null;
+  let conflicts: PortConflict[] = [];
   let forceToken: string | null = null;
 
   $: if (open && projectId === null) {
@@ -22,6 +23,7 @@
       ?? null;
     command = '';
     errMsg = null;
+    conflicts = [];
     forceToken = null;
   }
 
@@ -33,6 +35,7 @@
     worktree = null;
     command = '';
     errMsg = null;
+    conflicts = [];
     forceToken = null;
     dispatch('close');
   }
@@ -44,10 +47,11 @@
       ?? proj?.worktrees[0]?.branch
       ?? null;
     forceToken = null;
+    conflicts = [];
     errMsg = null;
   }
 
-  async function submit() {
+  async function submit(useForce = false) {
     if (!projectId) return;
     busy = true;
     errMsg = null;
@@ -56,13 +60,22 @@
         projectId,
         worktree: worktree ?? undefined,
         command: command.trim() || undefined,
-        forceToken: forceToken ?? undefined,
+        forceToken: useForce && forceToken ? forceToken : undefined,
       });
       const { sessions: ss } = await tauri.sessionList();
       sessions.set(ss);
       close();
     } catch (e) {
-      errMsg = String(e);
+      const pc = asPortConflict(e);
+      if (pc) {
+        conflicts = pc.conflicts;
+        forceToken = pc.force_token;
+        errMsg = `Port conflict: ${pc.conflicts.map((c) => c.port).join(', ')}`;
+      } else if (isUiRpcError(e)) {
+        errMsg = e.message;
+      } else {
+        errMsg = String(e);
+      }
     } finally {
       busy = false;
     }
@@ -108,15 +121,34 @@
           <small>Leave blank to run <code>claude</code>.</small>
         </label>
 
-        {#if errMsg}
+        {#if conflicts.length > 0}
+          <div class="conflict">
+            <strong>Port conflict</strong>
+            <ul>
+              {#each conflicts as c (c.port)}
+                <li><code>:{c.port}</code> held by <code>{c.holder}</code></li>
+              {/each}
+            </ul>
+            <p>
+              Kill the conflicting process (or use the Kill button on its
+              session row), or click <em>Launch anyway</em> to ignore.
+            </p>
+          </div>
+        {:else if errMsg}
           <div class="err">{errMsg}</div>
         {/if}
       </div>
       <footer>
         <button on:click={close} disabled={busy}>Cancel</button>
-        <button class="primary" on:click={submit} disabled={busy || !projectId}>
-          {busy ? 'Launching…' : 'Launch'}
-        </button>
+        {#if conflicts.length > 0 && forceToken}
+          <button class="warn" on:click={() => submit(true)} disabled={busy}>
+            {busy ? 'Launching…' : 'Launch anyway'}
+          </button>
+        {:else}
+          <button class="primary" on:click={() => submit(false)} disabled={busy || !projectId}>
+            {busy ? 'Launching…' : 'Launch'}
+          </button>
+        {/if}
       </footer>
     </div>
   </div>
@@ -192,6 +224,25 @@
     border-radius: 4px;
     font-size: 12px;
   }
+  .conflict {
+    padding: 12px;
+    background: rgba(244, 168, 60, 0.12);
+    border: 1px solid rgba(244, 168, 60, 0.4);
+    border-radius: 4px;
+    color: #f4a83c;
+    font-size: 12px;
+  }
+  .conflict strong { display: block; margin-bottom: 6px; }
+  .conflict ul { margin: 0 0 8px 16px; padding: 0; }
+  .conflict li { margin: 2px 0; }
+  .conflict p { margin: 0; color: var(--fg-dim); }
+  .conflict code {
+    font-family: var(--mono);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0 4px;
+    border-radius: 3px;
+    color: #f4a83c;
+  }
   footer {
     display: flex;
     justify-content: flex-end;
@@ -212,5 +263,10 @@
     color: var(--bg);
     border-color: var(--accent);
   }
-  footer .primary:disabled { opacity: 0.5; }
+  footer .warn {
+    background: #f4a83c;
+    color: var(--bg);
+    border-color: #f4a83c;
+  }
+  footer .primary:disabled, footer .warn:disabled { opacity: 0.5; }
 </style>

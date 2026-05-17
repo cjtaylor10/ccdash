@@ -9,9 +9,11 @@
     connectError,
     connected,
     mirrorTarget,
+    nextRetryAt,
     plans,
     ports,
     projects,
+    reconnecting,
     selectedProjectId,
     sessions,
     terminalPane,
@@ -22,6 +24,11 @@
     startMirroring,
     stopMirroring,
   } from '$lib/windowSync';
+  import {
+    startReconnectLoop,
+    retryNow,
+    stopReconnectLoop,
+  } from '$lib/reconnect';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import SessionsView from '$lib/components/SessionsView.svelte';
   import PortsView from '$lib/components/PortsView.svelte';
@@ -92,6 +99,8 @@
     } catch (e) {
       await log(`connect/refresh failed: ${String(e)}`);
       connectError.set(String(e));
+      // Kick off auto-reconnect with exponential backoff.
+      startReconnectLoop(refreshTopLevel);
     }
 
     const unlistenDaemon = await listen<{ method: string; params: any }>(
@@ -114,6 +123,7 @@
       unlistenDaemon();
       stopPublishing();
       stopMirroring();
+      stopReconnectLoop();
       clearInterval(windowsTimer);
     };
   });
@@ -136,6 +146,21 @@
 <div class="root">
   <Sidebar />
   <main>
+    {#if $reconnecting}
+      <div class="reconnect-banner">
+        <span class="dot" />
+        <span class="msg">
+          Disconnected from daemon — retrying
+          {#if $nextRetryAt}
+            in {Math.max(0, Math.ceil(($nextRetryAt - Date.now()) / 1000))}s
+          {/if}
+        </span>
+        {#if $connectError}
+          <span class="err">{$connectError}</span>
+        {/if}
+        <button class="retry-btn" on:click={retryNow}>Retry now</button>
+      </div>
+    {/if}
     <header>
       <div class="tabs">
         <button class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')}>Sessions</button>
@@ -188,6 +213,41 @@
 <style>
   .root { display: flex; height: 100vh; }
   main { flex: 1; display: flex; flex-direction: column; }
+  .reconnect-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(255, 165, 0, 0.12);
+    border-bottom: 1px solid rgba(255, 165, 0, 0.35);
+    color: #f4a83c;
+    font-size: 12px;
+  }
+  .reconnect-banner .dot {
+    width: 8px; height: 8px;
+    background: #f4a83c;
+    border-radius: 50%;
+    animation: pulse 1s ease-in-out infinite;
+  }
+  .reconnect-banner .err {
+    color: var(--danger);
+    font-family: var(--mono);
+    margin-left: 6px;
+  }
+  .reconnect-banner .retry-btn {
+    margin-left: auto;
+    background: #f4a83c;
+    color: var(--bg);
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
   header {
     display: flex;
     align-items: center;

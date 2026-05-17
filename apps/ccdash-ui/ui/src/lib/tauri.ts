@@ -1,5 +1,31 @@
 import { invoke } from '@tauri-apps/api/core';
 
+/** Structured error returned by every RPC-proxying Tauri command.
+ * Tauri's invoke() rejects with the unwrapped error object (not wrapped in
+ * Error). The shape is `{ message, data? }` matching the Rust `UiRpcError`. */
+export interface UiRpcError {
+  message: string;
+  data?: unknown;
+}
+
+/** Type guard for the structured RPC error shape. */
+export function isUiRpcError(e: unknown): e is UiRpcError {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    'message' in e &&
+    typeof (e as { message: unknown }).message === 'string'
+  );
+}
+
+/** Read `e.data` as PortConflictData if the shape matches. */
+export function asPortConflict(e: unknown): PortConflictData | null {
+  if (!isUiRpcError(e) || e.data == null) return null;
+  const d = e.data as { conflicts?: unknown; force_token?: unknown };
+  if (!Array.isArray(d.conflicts) || typeof d.force_token !== 'string') return null;
+  return { conflicts: d.conflicts as PortConflict[], force_token: d.force_token };
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -99,15 +125,6 @@ export interface PortConflict {
 export interface PortConflictData {
   conflicts: PortConflict[];
   force_token: string;
-}
-
-/** True if the daemon's error message indicates a port conflict. The detailed
- * conflict payload is in error.data on the daemon side, but the current
- * Tauri command bridge only forwards error.message — so callers can only
- * detect the condition, not extract the force_token. Full remediation is a
- * Phase 7 task. */
-export function isPortConflictMessage(msg: string): boolean {
-  return /port conflict/i.test(msg);
 }
 
 export const projectsApi = {

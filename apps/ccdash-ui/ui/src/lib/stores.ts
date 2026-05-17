@@ -23,3 +23,7 @@ export const terminalPane = writable<TerminalPaneState | null>(null);
 
 /** When set to a window label, this window mirrors that one's UI state. */
 export const mirrorTarget = writable<string | null>(null);
+
+// === Phase 7: reconnect state ===
+export const reconnecting = writable<boolean>(false);
+export const nextRetryAt = writable<number | null>(null);

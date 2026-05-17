@@ -6,6 +6,25 @@ use ccdash_core::protocol::ClientKind;
 use serde_json::Value;
 use tauri::State;
 
+/// Structured error returned by every RPC-proxying Tauri command.
+/// Carries both the daemon's error message and its `data` payload (e.g.
+/// `PortConflictData`) so the frontend can offer remediation actions.
+#[derive(Debug, serde::Serialize)]
+pub struct UiRpcError {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+impl UiRpcError {
+    fn message(msg: impl Into<String>) -> Self {
+        Self {
+            message: msg.into(),
+            data: None,
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn connect_and_handshake(state: State<'_, ClientState>) -> Result<String, String> {
     let mut guard = state.inner.lock().await;
@@ -30,38 +49,44 @@ async fn call_method(
     state: &State<'_, ClientState>,
     method: &str,
     params: Value,
-) -> Result<Value, String> {
+) -> Result<Value, UiRpcError> {
     let mut guard = state.inner.lock().await;
-    let client = guard
-        .as_mut()
-        .ok_or_else(|| "daemon not connected — call connect_and_handshake first".to_string())?;
+    let client = guard.as_mut().ok_or_else(|| {
+        UiRpcError::message("daemon not connected — call connect_and_handshake first")
+    })?;
     let resp = client
         .call(method, params)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| UiRpcError::message(e.to_string()))?;
     if let Some(err) = resp.error {
-        return Err(err.message);
+        return Err(UiRpcError {
+            message: err.message,
+            data: err.data,
+        });
     }
     Ok(resp.result.unwrap_or(Value::Null))
 }
 
 #[tauri::command]
-pub async fn project_list(state: State<'_, ClientState>) -> Result<Value, String> {
+pub async fn project_list(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
     call_method(&state, "project.list", serde_json::json!({})).await
 }
 
 #[tauri::command]
-pub async fn session_list(state: State<'_, ClientState>) -> Result<Value, String> {
+pub async fn session_list(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
     call_method(&state, "session.list", serde_json::json!({})).await
 }
 
 #[tauri::command]
-pub async fn ports_list(state: State<'_, ClientState>) -> Result<Value, String> {
+pub async fn ports_list(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
     call_method(&state, "ports.list", serde_json::json!({})).await
 }
 
 #[tauri::command]
-pub async fn plans_get(state: State<'_, ClientState>, project_id: String) -> Result<Value, String> {
+pub async fn plans_get(
+    state: State<'_, ClientState>,
+    project_id: String,
+) -> Result<Value, UiRpcError> {
     call_method(
         &state,
         "plans.get",
@@ -140,7 +165,7 @@ pub async fn project_add(
     state: State<'_, ClientState>,
     path: String,
     name: Option<String>,
-) -> Result<Value, String> {
+) -> Result<Value, UiRpcError> {
     let mut params = serde_json::Map::new();
     params.insert("path".into(), Value::String(path));
     if let Some(n) = name {
@@ -150,7 +175,10 @@ pub async fn project_add(
 }
 
 #[tauri::command]
-pub async fn project_remove(state: State<'_, ClientState>, id: String) -> Result<Value, String> {
+pub async fn project_remove(
+    state: State<'_, ClientState>,
+    id: String,
+) -> Result<Value, UiRpcError> {
     call_method(&state, "project.remove", serde_json::json!({ "id": id })).await
 }
 
@@ -161,7 +189,7 @@ pub async fn session_launch(
     worktree: Option<String>,
     command: Option<String>,
     force_token: Option<String>,
-) -> Result<Value, String> {
+) -> Result<Value, UiRpcError> {
     let mut params = serde_json::Map::new();
     params.insert("project_id".into(), Value::String(project_id));
     if let Some(w) = worktree {
@@ -180,7 +208,7 @@ pub async fn session_launch(
 pub async fn session_kill(
     state: State<'_, ClientState>,
     tmux_session_id: String,
-) -> Result<Value, String> {
+) -> Result<Value, UiRpcError> {
     call_method(
         &state,
         "session.kill",
