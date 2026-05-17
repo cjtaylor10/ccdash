@@ -1,30 +1,88 @@
-/* Default (dark) palette. Mirrored in [data-theme="dark"] for explicit
- * dark forcing; [data-theme="light"] overrides for light mode. */
+/* Design tokens — dense, app-native dark theme.
+ * The dark palette is the canonical look; [data-theme="light"] is the
+ * inverted variant. Either is selected by `lib/theme.ts` writing to
+ * `<html data-theme="...">`.
+ */
+
 :root,
 [data-theme="dark"] {
-  --bg: #1a1b1e;
-  --bg-elev: #25262b;
-  --fg: #e6e6e6;
-  --fg-dim: #909296;
-  --accent: #7aa2f7;
-  --accent-bg: #2b3553;
-  --border: #2c2e33;
-  --danger: #e15c5c;
-  --success: #6ec38a;
+  /* Surfaces — three shades for visual layering */
+  --bg: #0f1014;
+  --bg-elev: #16181d;
+  --bg-elev-2: #1c1f26;
+
+  /* Text */
+  --fg: #e8eaed;
+  --fg-dim: #8b919c;
+  --fg-mute: #5b6068;
+
+  /* Accent (cool blue, slightly more saturated than v1.0) */
+  --accent: #6a9bff;
+  --accent-bg: rgba(106, 155, 255, 0.12);
+  --accent-bg-strong: rgba(106, 155, 255, 0.22);
+
+  /* State colors — dot indicators + badges */
+  --state-running: #4ec97f;
+  --state-running-bg: rgba(78, 201, 127, 0.14);
+  --state-exited: #6b7280;
+  --state-exited-bg: rgba(107, 114, 128, 0.16);
+  --state-error: #ff6b6b;
+  --state-error-bg: rgba(255, 107, 107, 0.14);
+  --state-warn: #f0b13a;
+  --state-warn-bg: rgba(240, 177, 58, 0.14);
+
+  /* Aliases for backwards-compat with prior code */
+  --danger: var(--state-error);
+  --success: var(--state-running);
+
+  /* Borders */
+  --border: #23262e;
+  --border-strong: #2d3038;
+
+  /* Type */
   --mono: ui-monospace, "SF Mono", "Monaco", "Cascadia Code", monospace;
-  --sans: system-ui, -apple-system, sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+
+  /* Motion */
+  --t-fast: 80ms ease-out;
+  --t-base: 160ms ease-out;
 }
 
 [data-theme="light"] {
-  --bg: #f7f7f8;
+  --bg: #f7f8fa;
   --bg-elev: #ffffff;
-  --fg: #1a1b1e;
-  --fg-dim: #6b6f78;
-  --accent: #2563eb;
-  --accent-bg: #e0ebff;
-  --border: #d8dadd;
-  --danger: #c5302f;
-  --success: #1f8a4d;
+  --bg-elev-2: #f0f2f6;
+  --fg: #14161c;
+  --fg-dim: #5b6573;
+  --fg-mute: #8b919c;
+  --accent: #2f6bd9;
+  --accent-bg: rgba(47, 107, 217, 0.10);
+  --accent-bg-strong: rgba(47, 107, 217, 0.18);
+  --state-running: #18994f;
+  --state-running-bg: rgba(24, 153, 79, 0.12);
+  --state-exited: #6b7280;
+  --state-exited-bg: rgba(107, 114, 128, 0.12);
+  --state-error: #c5302f;
+  --state-error-bg: rgba(197, 48, 47, 0.10);
+  --state-warn: #b86e00;
+  --state-warn-bg: rgba(184, 110, 0, 0.12);
+  --danger: var(--state-error);
+  --success: var(--state-running);
+  --border: #e4e6eb;
+  --border-strong: #d2d6dd;
+  --shadow-sm: 0 1px 2px rgba(20, 22, 28, 0.06);
+  --shadow-md: 0 4px 16px rgba(20, 22, 28, 0.10);
+  --shadow-lg: 0 16px 48px rgba(20, 22, 28, 0.18);
 }
 
 * { box-sizing: border-box; }
@@ -36,19 +94,56 @@ html, body {
   font-family: var(--sans);
   background: var(--bg);
   color: var(--fg);
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button {
-  background: var(--bg-elev);
+  background: transparent;
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
 }
-button:hover { background: var(--accent-bg); }
+button:hover:not(:disabled) { background: var(--bg-elev-2); border-color: var(--border-strong); }
+button:active:not(:disabled) { background: var(--bg-elev); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
 
 a { color: var(--accent); text-decoration: none; }
-code, pre { font-family: var(--mono); }
+a:hover { text-decoration: underline; }
+
+code, pre {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* Reusable utility — status dot */
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot.running { background: var(--state-running); box-shadow: 0 0 0 2px var(--state-running-bg); }
+.dot.exited { background: var(--state-exited); }
+.dot.error { background: var(--state-error); }
+.dot.warn { background: var(--state-warn); }

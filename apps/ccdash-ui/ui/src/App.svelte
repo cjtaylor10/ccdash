@@ -186,6 +186,10 @@
     $reconnecting ? 'yellow' : $connected ? 'green' : 'red';
   $: healthTitle =
     $reconnecting ? 'Reconnecting…' : $connected ? 'Daemon connected' : 'Daemon disconnected';
+
+  $: sessionsCount = $sessions.filter((s) => s.state === 'running').length;
+  $: portsCount = $ports.running.length;
+  $: plansCount = $plans.length;
 </script>
 
 <div class="root">
@@ -207,30 +211,43 @@
       </div>
     {/if}
     <header>
-      <div class="tabs">
-        <button class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')}>Sessions</button>
-        <button class:active={$activeTab === 'ports'} on:click={() => setTab('ports')}>Ports</button>
-        <button class:active={$activeTab === 'plans'} on:click={() => setTab('plans')}>Plans</button>
-        <button class:active={$activeTab === 'browser'} on:click={() => setTab('browser')}>
+      <div class="tabs" role="tablist">
+        <button class="pill" class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')} role="tab" aria-selected={$activeTab === 'sessions'}>
+          Sessions
+          {#if sessionsCount > 0}<span class="count">{sessionsCount}</span>{/if}
+        </button>
+        <button class="pill" class:active={$activeTab === 'ports'} on:click={() => setTab('ports')} role="tab" aria-selected={$activeTab === 'ports'}>
+          Ports
+          {#if portsCount > 0}<span class="count">{portsCount}</span>{/if}
+        </button>
+        <button class="pill" class:active={$activeTab === 'plans'} on:click={() => setTab('plans')} role="tab" aria-selected={$activeTab === 'plans'}>
+          Plans
+          {#if plansCount > 0}<span class="count">{plansCount}</span>{/if}
+        </button>
+        <button class="pill" class:active={$activeTab === 'browser'} on:click={() => setTab('browser')} role="tab" aria-selected={$activeTab === 'browser'}>
           Browser
-          {#if $detectedUrls.size > 0 && $activeTab !== 'browser'}
-            <span class="badge" aria-label="{$detectedUrls.size} URLs detected"></span>
+          {#if $detectedUrls.size > 0}
+            <span class="count" class:pulse={$activeTab !== 'browser'}>{$detectedUrls.size}</span>
           {/if}
         </button>
       </div>
       <div class="actions">
-        <button class="primary" on:click={() => (launchOpen = true)}>Launch session</button>
-        <select value={$mirrorTarget ?? ''} on:change={onMirrorChange}>
-          <option value="">— independent —</option>
-          {#each $otherWindowList as w (w)}
-            <option value={w}>follow {w}</option>
-          {/each}
-        </select>
-        <button on:click={() => windowsApi.openNew()}>+ New window</button>
+        <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
+          <span class="plus">+</span> Launch
+        </button>
+        <button class="icon-btn" on:click={() => windowsApi.openNew()} title="New window (⌘N)">⊞</button>
+        {#if $otherWindowList.length > 0}
+          <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
+            <option value="">independent</option>
+            {#each $otherWindowList as w (w)}
+              <option value={w}>follow {w}</option>
+            {/each}
+          </select>
+        {/if}
         <select class="theme-select" value={$theme} on:change={onThemeChange} title="Theme">
-          <option value="system">Auto</option>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
+          <option value="system">auto</option>
+          <option value="dark">dark</option>
+          <option value="light">light</option>
         </select>
         <span class="health health-{healthColor}" title={healthTitle} aria-label={healthTitle}></span>
       </div>
@@ -270,109 +287,170 @@
 />
 
 <style>
-  .root { display: flex; height: 100vh; }
-  main { flex: 1; display: flex; flex-direction: column; }
+  .root { display: flex; height: 100vh; background: var(--bg); }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* Reconnect banner */
   .reconnect-banner {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 16px;
-    background: rgba(255, 165, 0, 0.12);
-    border-bottom: 1px solid rgba(255, 165, 0, 0.35);
-    color: #f4a83c;
+    padding: 7px 14px;
+    background: var(--state-warn-bg);
+    border-bottom: 1px solid color-mix(in srgb, var(--state-warn) 30%, transparent);
+    color: var(--state-warn);
     font-size: 12px;
   }
   .reconnect-banner .dot {
-    width: 8px; height: 8px;
-    background: #f4a83c;
-    border-radius: 50%;
-    animation: pulse 1s ease-in-out infinite;
+    background: var(--state-warn);
+    animation: blink 1.2s ease-in-out infinite;
   }
   .reconnect-banner .err {
-    color: var(--danger);
+    color: var(--state-error);
     font-family: var(--mono);
     margin-left: 6px;
+    font-size: 11px;
   }
   .reconnect-banner .retry-btn {
     margin-left: auto;
-    background: #f4a83c;
+    background: var(--state-warn);
     color: var(--bg);
     border: none;
-    border-radius: 4px;
-    padding: 4px 12px;
-    font-size: 12px;
-    cursor: pointer;
+    border-radius: var(--r-sm);
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
   }
-  @keyframes pulse {
+  @keyframes blink {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    50% { opacity: 0.35; }
   }
+
+  /* Top header */
   header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 16px;
+    gap: 10px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-elev);
+    flex-shrink: 0;
   }
-  .tabs { display: flex; gap: 4px; }
-  .tabs button { border-radius: 4px; position: relative; }
-  .tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
-  .tabs .badge {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-    margin-left: 4px;
-    vertical-align: middle;
+
+  /* Pill tabs */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg);
+    padding: 2px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
   }
-  .actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+  .pill {
+    background: transparent;
+    border: none;
+    color: var(--fg-dim);
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--r-sm);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color var(--t-fast), background var(--t-fast);
+  }
+  .pill:hover:not(.active) { color: var(--fg); background: var(--bg-elev-2); }
+  .pill.active {
+    background: var(--accent-bg-strong);
+    color: var(--accent);
+  }
+  .count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 14px;
+    padding: 0 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: var(--bg-elev-2);
+    color: var(--fg-dim);
+    border-radius: 7px;
+  }
+  .pill.active .count { background: var(--accent); color: var(--bg); }
+  .count.pulse { animation: pulse-pop 1.8s ease-in-out infinite; background: var(--accent); color: var(--bg); }
+  @keyframes pulse-pop {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+  }
+
+  /* Action group */
+  .actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
   .actions .primary {
     background: var(--accent);
     color: var(--bg);
     border: 1px solid var(--accent);
-    border-radius: 4px;
     padding: 4px 12px;
     font-size: 12px;
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
-  .actions .primary:hover { opacity: 0.9; }
-  .actions .theme-select {
+  .actions .primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+  .actions .primary .plus { font-weight: 400; font-size: 14px; line-height: 1; opacity: 0.9; }
+
+  .icon-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--fg-dim);
+  }
+  .icon-btn:hover { color: var(--fg); }
+
+  .actions select {
+    background: var(--bg);
+    color: var(--fg-dim);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
     padding: 3px 6px;
     font-size: 11px;
   }
+  .actions select:hover { color: var(--fg); border-color: var(--border-strong); }
+  .actions .theme-select { font-variant-caps: all-small-caps; letter-spacing: 0.5px; }
+
+  /* Health indicator */
   .health {
     display: inline-block;
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     margin-left: 4px;
+    flex-shrink: 0;
   }
-  .health-green { background: var(--success); box-shadow: 0 0 4px var(--success); }
-  .health-yellow { background: #f4a83c; box-shadow: 0 0 4px #f4a83c; animation: pulse 1s ease-in-out infinite; }
-  .health-red { background: var(--danger); box-shadow: 0 0 4px var(--danger); }
-  .actions select {
-    background: var(--bg-elev);
-    color: var(--fg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px 6px;
-    font-size: 12px;
-  }
-  .status .error { color: var(--danger); font-size: 12px; }
-  .content { flex: 1; overflow-y: auto; min-height: 200px; }
+  .health-green { background: var(--state-running); box-shadow: 0 0 0 2px var(--state-running-bg); }
+  .health-yellow { background: var(--state-warn); animation: blink 1.2s ease-in-out infinite; }
+  .health-red { background: var(--state-error); box-shadow: 0 0 0 2px var(--state-error-bg); }
+
+  /* Content + terminal panel */
+  .content { flex: 1; overflow-y: auto; min-height: 0; }
   .terminal-panel {
     height: 340px;
     border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    background: #1a1b1e;
+    background: #0a0c10;
+    flex-shrink: 0;
   }
   .terminal-header {
     display: flex; justify-content: space-between; align-items: center;
     padding: 6px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border);
-    font-family: var(--mono); font-size: 12px; color: var(--fg-dim);
+    font-family: var(--mono); font-size: 11px; color: var(--fg-dim);
   }
   .terminal-host { flex: 1; overflow: hidden; }
 </style>

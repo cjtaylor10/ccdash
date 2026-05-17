@@ -134,41 +134,56 @@
     z-index: 300;
   }
   .palette {
-    width: 520px;
+    width: 560px;
     max-height: 60vh;
     display: flex;
     flex-direction: column;
     background: var(--bg-elev);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
     overflow: hidden;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-lg);
+    animation: popIn 140ms ease-out;
   }
+  @keyframes popIn { from { transform: scale(0.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   input {
     border: none;
-    background: var(--bg);
+    background: transparent;
     color: var(--fg);
-    padding: 12px 16px;
-    font-size: 14px;
+    padding: 13px 18px;
+    font-size: 13.5px;
     outline: none;
     border-bottom: 1px solid var(--border);
+    font-family: inherit;
   }
+  input::placeholder { color: var(--fg-mute); }
   ul {
     list-style: none;
     margin: 0;
-    padding: 4px 0;
+    padding: 4px;
     overflow-y: auto;
   }
   li {
     display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 7px 16px;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 12px;
     cursor: pointer;
+    border-radius: var(--r-sm);
   }
-  li.active { background: var(--accent-bg); }
-  li:hover:not(.empty) { background: var(--accent-bg); }
-  li .label { color: var(--fg); font-size: 13px; }
-  li .hint { color: var(--fg-dim); font-size: 11px; font-family: var(--mono); margin-left: auto; }
-  li.empty { color: var(--fg-dim); justify-content: center; cursor: default; font-style: italic; padding: 16px; }
+  li.active { background: var(--accent-bg-strong); }
+  li:hover:not(.empty):not(.active) { background: var(--bg-elev-2); }
+  li .label { color: var(--fg); font-size: 12.5px; }
+  li.active .label { color: var(--accent); }
+  li .hint {
+    color: var(--fg-mute);
+    font-size: 10.5px;
+    font-family: var(--mono);
+    margin-left: auto;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  li.empty { color: var(--fg-mute); justify-content: center; cursor: default; font-style: italic; padding: 22px; font-size: 12px; }
 </style>

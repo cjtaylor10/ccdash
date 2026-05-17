@@ -177,18 +177,20 @@
   }
   .modal {
     background: var(--bg-elev);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    min-width: 540px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    min-width: 560px;
     max-width: 720px;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-lg);
+    animation: popIn 180ms ease-out;
   }
-  header { padding: 18px 24px; border-bottom: 1px solid var(--border); }
-  header h2 { margin: 0 0 4px; font-size: 18px; color: var(--accent); }
-  header p { margin: 0; color: var(--fg-dim); font-size: 13px; }
+  @keyframes popIn { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  header { padding: 22px 26px 16px; border-bottom: 1px solid var(--border); }
+  header h2 { margin: 0 0 4px; font-size: 17px; color: var(--accent); font-weight: 600; }
+  header p { margin: 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
   .body {
     padding: 18px 24px;
     overflow-y: auto;
