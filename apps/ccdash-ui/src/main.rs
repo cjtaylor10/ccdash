@@ -37,6 +37,7 @@ fn main() {
     tracing::info!("ccdash-ui starting");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(client_state::ClientState::new())
         .manage(pty::PtyManager::new())
         .setup(|app| {

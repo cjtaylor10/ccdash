@@ -15,6 +15,7 @@ tauri-build = { workspace = true }
 [dependencies]
 ccdash-core = { path = "../../crates/ccdash-core" }
 tauri = { workspace = true, features = ["devtools"] }
+tauri-plugin-dialog = "2"
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
