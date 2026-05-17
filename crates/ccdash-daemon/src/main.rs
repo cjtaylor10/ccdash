@@ -3,6 +3,7 @@
 mod broadcast;
 mod config;
 mod projects;
+mod tmux;
 mod worktrees;
 
 use clap::Parser;
