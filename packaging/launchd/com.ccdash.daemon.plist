@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ccdash.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>BREW_PREFIX/bin/ccdash-daemon</string>
+    <string>--log-level</string>
+    <string>info</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>USER_LOG_DIR/ccdash/daemon.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>USER_LOG_DIR/ccdash/daemon.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>BREW_PREFIX/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

@@ -1,0 +1,12 @@
+[Unit]
+Description=ccdash daemon
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=BREW_PREFIX/bin/ccdash-daemon --log-level info
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
