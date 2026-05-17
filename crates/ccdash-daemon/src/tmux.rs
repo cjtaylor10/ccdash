@@ -73,22 +73,28 @@ pub async fn new_session(name: &str, cwd: &Path, command: &str) -> Result<String
     if !status.success() {
         anyhow::bail!("tmux new-session failed (status {:?})", status.code());
     }
-    // Configure remain-on-exit for this session's windows.
-    let _ = Command::new("tmux")
-        .args(["set-option", "-t", name, "remain-on-exit", "on"])
-        .status()
-        .await;
-
-    // Look up the session_id we just created.
+    // Look up the stable session_id (e.g. "$3") via the session_name we just created.
     let output = Command::new("tmux")
         .args(["display-message", "-p", "-t", name, "#{session_id}"])
         .output()
         .await
         .context("running tmux display-message")?;
     if !output.status.success() {
-        anyhow::bail!("could not resolve session_id for {}", name);
+        anyhow::bail!(
+            "could not resolve session_id for {}: {}",
+            name,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    let session_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Configure remain-on-exit via the stable session_id (no colon-target ambiguity).
+    let _ = Command::new("tmux")
+        .args(["set-option", "-t", &session_id, "remain-on-exit", "on"])
+        .output()
+        .await;
+
+    Ok(session_id)
 }
 
 /// Kill the tmux session by id (e.g. "$3").

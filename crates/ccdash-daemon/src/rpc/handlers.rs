@@ -71,7 +71,9 @@ pub async fn handle_session_launch(params: SessionLaunchParams, state: &AppState
 
     let safe_wt = sanitize(&worktree_name);
     let safe_proj = sanitize(&project.name);
-    let name = format!("ccdash:{}:{}", safe_proj, safe_wt);
+    // Use `_` as separator: tmux silently replaces `:` in session names anyway,
+    // so picking `_` keeps our internal name in sync with what `tmux ls` shows.
+    let name = format!("ccdash_{}_{}", safe_proj, safe_wt);
 
     let session_id = tmux::new_session(&name, &cwd, &cmd).await.map_err(|e| err(E_INTERNAL, e.to_string()))?;
     state.sessions.record_launch(session_id.clone(), project.id.clone(), Some(worktree_name)).await
