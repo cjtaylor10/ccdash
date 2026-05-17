@@ -118,6 +118,17 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
             Ok(r) => Response::ok(id, serde_json::to_value(r).unwrap()),
             Err(e) => Response::err(id, e),
         },
+        "plans.get" => {
+            let params: ccdash_core::protocol::PlanGetParams =
+                match serde_json::from_value(req.params) {
+                    Ok(p) => p,
+                    Err(e) => return Response::err(id, err(E_INVALID_PARAMS, e.to_string())),
+                };
+            match handlers::handle_plans_get(params, state).await {
+                Ok(r) => Response::ok(id, serde_json::to_value(r).unwrap()),
+                Err(e) => Response::err(id, e),
+            }
+        }
         other => Response::err(id, err(-32601, format!("method not found: {}", other))),
     }
 }

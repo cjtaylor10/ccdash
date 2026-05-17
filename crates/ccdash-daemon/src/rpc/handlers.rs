@@ -229,6 +229,24 @@ pub async fn handle_session_kill(
     Ok(())
 }
 
+pub async fn handle_plans_get(
+    params: ccdash_core::protocol::PlanGetParams,
+    state: &AppState,
+) -> Result<ccdash_core::protocol::PlanGetResult, RpcError> {
+    let projects = state.projects.list().await;
+    let project = projects
+        .iter()
+        .find(|p| p.id == params.project_id)
+        .ok_or_else(|| err(E_NOT_FOUND, "no such project"))?
+        .clone();
+    let plans = state
+        .plans
+        .refresh(&project.id, &project.path)
+        .await
+        .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+    Ok(ccdash_core::protocol::PlanGetResult { plans })
+}
+
 /// Sanitize a string for use in a tmux session name: replace ':' and whitespace with '_'.
 fn sanitize(s: &str) -> String {
     s.chars()

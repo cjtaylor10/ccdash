@@ -16,6 +16,7 @@ pub struct AppState {
     pub projects: Arc<ProjectsRegistry>,
     pub sessions: Arc<Manager>,
     pub ports: Arc<PortsRegistry>,
+    pub plans: Arc<crate::plans::Manager>,
     pub bus: Bus,
     pub auth_token: Arc<String>,
     #[allow(dead_code)] // read by file watchers + ports module in Phase 2+
@@ -31,10 +32,12 @@ impl AppState {
         let projects = Arc::new(ProjectsRegistry::load(data_dir.join("projects.toml")).await?);
         let sessions = Arc::new(Manager::load(data_dir.join("sessions.toml")).await?);
         let ports = Arc::new(PortsRegistry::new(projects.clone()));
+        let plans = Arc::new(crate::plans::Manager::new());
         Ok(Self {
             projects,
             sessions,
             ports,
+            plans,
             bus: Bus::new(),
             auth_token: Arc::new(token),
             data_dir,
