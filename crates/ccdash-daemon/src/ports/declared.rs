@@ -49,7 +49,10 @@ async fn scan_package_json(project_id: &ProjectId, root: &Path) -> Vec<DeclaredP
     let mut out = Vec::new();
     for (_name, val) in scripts {
         if let Some(s) = val.as_str() {
-            for cap in PORT_EQ_RE.captures_iter(s).chain(PORT_FLAG_RE.captures_iter(s)) {
+            for cap in PORT_EQ_RE
+                .captures_iter(s)
+                .chain(PORT_FLAG_RE.captures_iter(s))
+            {
                 if let Ok(port) = cap[1].parse::<u16>() {
                     out.push(DeclaredPort {
                         project_id: project_id.clone(),

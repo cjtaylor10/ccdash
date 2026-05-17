@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ccdash",
+  "version": "0.1.0",
+  "identifier": "com.ccdash.app",
+  "build": {
+    "beforeDevCommand": "pnpm --filter ccdash-ui-frontend dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm --filter ccdash-ui-frontend build",
+    "frontendDist": "ui/build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ccdash",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 720,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"]
+  }
+}

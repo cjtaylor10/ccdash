@@ -1,0 +1,64 @@
+import { invoke } from '@tauri-apps/api/core';
+
+export interface Project {
+  id: string;
+  name: string;
+  path: string;
+  worktrees: Worktree[];
+  state: 'ok' | 'missing';
+}
+
+export interface Worktree {
+  path: string;
+  branch: string;
+  is_primary: boolean;
+}
+
+export interface Session {
+  tmux_session_id: string;
+  name: string;
+  project_id: string | null;
+  worktree: string | null;
+  cwd: string;
+  pid: number;
+  state: 'running' | 'exited';
+  first_seen: number;
+}
+
+export interface PortBinding {
+  port: number;
+  protocol: string;
+  pid: number | null;
+  command: string | null;
+  project_id: string | null;
+}
+
+export interface DeclaredPort {
+  project_id: string;
+  port: number;
+  source: string;
+}
+
+export interface Plan {
+  path: string;
+  title: string;
+  phases: PlanPhase[];
+}
+
+export interface PlanPhase {
+  name: string;
+  tasks: PlanTask[];
+}
+
+export interface PlanTask {
+  title: string;
+  done: boolean;
+}
+
+export const tauri = {
+  connect: () => invoke<string>('connect_and_handshake'),
+  projectList: () => invoke<{ projects: Project[] }>('project_list'),
+  sessionList: () => invoke<{ sessions: Session[] }>('session_list'),
+  portsList: () => invoke<{ running: PortBinding[]; declared: DeclaredPort[] }>('ports_list'),
+  plansGet: (projectId: string) => invoke<{ plans: Plan[] }>('plans_get', { projectId }),
+};

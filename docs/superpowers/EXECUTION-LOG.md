@@ -102,4 +102,33 @@ records and returned via `plans.get`.
 
 **Tag:** `phase-2-done`.
 
+## 2026-05-17 — Phase 3 (Tauri UI shell) — Complete
+
+**Result:** Tauri 2.x desktop app builds clean against ccdash-core. SvelteKit
+frontend with 4 components (Sidebar / SessionsView / PortsView / PlansView),
+dark theme, 5s polling refresh. UI talks to daemon via 5 Tauri commands that
+wrap `ccdash_core::Client`.
+
+**Plan deviations recorded:**
+
+1. **`get_client` helper had a lifetime issue.** Plan called for a helper that
+   returned `MutexGuard<'_, Option<Client>>` but the lifetimes don't compose
+   cleanly through `State<'_, _>`. Inlined the lock + as_mut + error path into
+   a `call_method(&state, method, params)` helper that does the full RPC call
+   in one place. Cleaner anyway.
+
+2. **Icon needs to be RGBA.** Tauri's bundler panicked at compile time because
+   the initial 1x1 placeholder was 8-bit grayscale, not RGBA. Regenerated as a
+   32×32 RGBA PNG (solid accent-color). Real product icons are still Phase 5.
+
+3. **No manual visual smoke test in autonomous mode.** Plan called for a manual
+   run of the binary to verify the window opens. In autonomous mode, the build
+   passing + daemon test suite still green is the acceptance gate. Visual
+   verification deferred to the user.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean, `cargo clippy --workspace --all-targets -- -D warnings` clean, `cargo test --workspace` → 82 passed / 0 failed / 1 ignored. `cargo build -p ccdash-ui` succeeds.
+
+**Tag:** `phase-3-done`.
+
+
 

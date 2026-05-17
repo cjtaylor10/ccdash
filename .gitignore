@@ -4,3 +4,7 @@ node_modules/
 .superpowers/
 **/*.rs.bk
 Cargo.lock.bak
+apps/ccdash-ui/ui/node_modules/
+apps/ccdash-ui/ui/build/
+apps/ccdash-ui/ui/.svelte-kit/
+apps/ccdash-ui/target/

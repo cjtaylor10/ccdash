@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ccdash-core", "crates/ccdash-daemon", "crates/ccdash-cli"]
+members = ["crates/ccdash-core", "crates/ccdash-daemon", "crates/ccdash-cli", "apps/ccdash-ui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -23,4 +23,6 @@ notify = "6"
 pulldown-cmark = "0.12"
 rand = "0.8"
 regex = "1"
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
 tempfile = "3"
