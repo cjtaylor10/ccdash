@@ -9,7 +9,7 @@ See [INSTALL.md](./INSTALL.md) for installation and
 ## Quick start
 
 ```bash
-brew tap cjtaylor/ccdash-tap
+brew tap cjtaylor10/ccdash-tap
 brew install ccdash
 ccdash project add ~/path/to/your/repo
 ccdash-ui

@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.83"
 license = "MIT"
-repository = "https://github.com/cjtaylor/ccdash"
+repository = "https://github.com/cjtaylor10/ccdash"
 
 [workspace.dependencies]
 anyhow = "1"

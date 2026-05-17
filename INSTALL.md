@@ -12,7 +12,7 @@ macOS and Linux.
 ## Install via Homebrew (recommended)
 
 ```bash
-brew tap cjtaylor/ccdash-tap
+brew tap cjtaylor10/ccdash-tap
 brew install ccdash
 ```
 
@@ -51,7 +51,7 @@ brew uninstall ccdash
 
 ```bash
 # Prereqs: rust, node, pnpm, tmux, cargo install tauri-cli (if missing)
-git clone https://github.com/cjtaylor/ccdash.git
+git clone https://github.com/cjtaylor10/ccdash.git
 cd ccdash
 
 # Build all binaries + Tauri .app, then ad-hoc sign the .app:
