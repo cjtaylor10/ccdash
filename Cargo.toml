@@ -18,7 +18,7 @@ toml = "0.8"
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "net", "fs", "sync", "signal", "process", "io-util", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 notify = "6"
 rand = "0.8"
 tempfile = "3"
