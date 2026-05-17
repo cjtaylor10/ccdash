@@ -88,3 +88,49 @@ export const windows = {
     tauriListen<T>(`window-state-broadcast::${from}`, (e) => handler(e.payload)),
   currentLabel: () => getCurrentWindow().label,
 };
+
+// === Phase 6: project + session management ===
+
+export interface PortConflict {
+  port: number;
+  holder: string;
+}
+
+export interface PortConflictData {
+  conflicts: PortConflict[];
+  force_token: string;
+}
+
+/** True if the daemon's error message indicates a port conflict. The detailed
+ * conflict payload is in error.data on the daemon side, but the current
+ * Tauri command bridge only forwards error.message — so callers can only
+ * detect the condition, not extract the force_token. Full remediation is a
+ * Phase 7 task. */
+export function isPortConflictMessage(msg: string): boolean {
+  return /port conflict/i.test(msg);
+}
+
+export const projectsApi = {
+  add: (path: string, name?: string) =>
+    invoke<Project>('project_add', { path, name }),
+  remove: (id: string) => invoke<null>('project_remove', { id }),
+};
+
+export interface LaunchOpts {
+  projectId: string;
+  worktree?: string;
+  command?: string;
+  forceToken?: string;
+}
+
+export const sessionsApi = {
+  launch: (opts: LaunchOpts) =>
+    invoke<{ session: Session }>('session_launch', {
+      projectId: opts.projectId,
+      worktree: opts.worktree,
+      command: opts.command,
+      forceToken: opts.forceToken,
+    }),
+  kill: (tmuxSessionId: string) =>
+    invoke<null>('session_kill', { tmuxSessionId }),
+};
