@@ -4,6 +4,7 @@ mod broadcast;
 mod config;
 mod projects;
 mod sessions;
+mod state;
 mod tmux;
 mod worktrees;
 
