@@ -478,4 +478,71 @@ click to confirm.
 
 **Tags:** `phase-7-done`, `v0.3.0`.
 
+## 2026-05-17 — Phase 8 (First-run + onboarding) — Complete
+
+**Result:** New users get a 2-step welcome modal on first launch: pick scan
+roots, approve discovered repos. The scanner module (built in Phase 1 but
+unused for ~6 months in dev-time) finally has a consumer. Empty states
+across Sessions/Ports/Plans tabs guide users to add their first project.
+
+**Daemon changes:**
+- `Registry::load` returns the `was_new_on_disk` signal indicating whether
+  `projects.toml` existed at startup.
+- `AppState.first_run_pending: Arc<AtomicBool>` seeded from above; cleared
+  by `daemon.first_run_complete`.
+- Three new RPC methods: `daemon.first_run_status`, `daemon.scan_paths`
+  (wraps `projects::scanner::scan`), `daemon.first_run_complete`.
+- New protocol types: `FirstRunStatusResult`, `ScanPathsParams/Result`,
+  `DiscoveredRepo`.
+- Two new tests for first-run flag transitions (now 84 tests total).
+
+**Frontend changes:**
+- Three new Tauri commands + `daemonApi` wrapper.
+- `WelcomeModal.svelte`: 2-step picker → approve → bulk add. Skip option.
+- `EmptyState.svelte` shared between Sessions/Ports/Plans tabs.
+- `projectActions.ts` extracts the folder-picker + add flow so Sidebar
+  and EmptyState share it.
+- `App.svelte` checks first-run status on connect (main window only) and
+  shows the welcome modal if pending.
+
+**Plan deviations recorded:**
+
+1. **Welcome modal does NOT default to `~/Documents`.** Original plan
+   suggested a hardcoded default scan root. Dropped because (a) it requires
+   shipping `@tauri-apps/plugin-os` for `homeDir()` resolution OR
+   hardcoding the macOS path, neither of which adds much over the simple
+   "pick a folder" UX, and (b) personal-first users will know where their
+   code lives.
+
+2. **Welcome modal only shows on the main window.** The check
+   `windowsApi.currentLabel() === 'main'` gates the modal so additional
+   `+ New window` instances don't all pop the welcome flow. Without this,
+   each new window would call first_run_status and one of them would
+   race the "complete" call.
+
+3. **Daemon's first_run_pending uses `AtomicBool` for cheap reads.** Spec
+   §6.1 mentioned "first_run_pending state" without specifying primitive
+   type. AtomicBool with Relaxed ordering is enough — we never read it
+   alongside other related state, and one writer (the RPC handler) /
+   many readers (every status check) is the textbook AtomicBool use.
+
+4. **Identifier collision in WelcomeModal.svelte.** Importing
+   `open` from `@tauri-apps/plugin-dialog` clashed with `export let open`
+   prop. Aliased the import to `openFolderDialog`.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 84 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` produces `packaging/dist/ccdash-0.4.0.tar.gz`,
+formula sha256 = `f3bcf061f42f8d54ff8233de0ea020ba347a87c0371fba336e903f61a2715b2c`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.4.0`,
+`ccdash status` reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** the welcome modal flow (cannot trigger
+first-run on a machine that already has projects.toml without clearing
+it). Empty-state UI when no projects. User must click to confirm.
+
+**Tags:** `phase-8-done`, `v0.4.0`.
+
 
