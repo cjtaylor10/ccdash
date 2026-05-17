@@ -16,21 +16,28 @@ pub struct FrameReader {
 
 impl FrameReader {
     pub fn new(half: OwnedReadHalf) -> Self {
-        Self { inner: BufReader::new(half), buf: String::with_capacity(1024) }
+        Self {
+            inner: BufReader::new(half),
+            buf: String::with_capacity(1024),
+        }
     }
 
     /// Read one JSON-RPC request frame. Returns `Ok(None)` on EOF.
     pub async fn next_request(&mut self) -> Result<Option<Request>> {
         self.buf.clear();
-        let n = self.inner.read_line(&mut self.buf).await.context("reading frame")?;
+        let n = self
+            .inner
+            .read_line(&mut self.buf)
+            .await
+            .context("reading frame")?;
         if n == 0 {
             return Ok(None);
         }
         if self.buf.len() > MAX_FRAME_BYTES {
             anyhow::bail!("frame exceeds {} bytes", MAX_FRAME_BYTES);
         }
-        let req: Request = serde_json::from_str(self.buf.trim_end())
-            .context("parsing JSON-RPC request")?;
+        let req: Request =
+            serde_json::from_str(self.buf.trim_end()).context("parsing JSON-RPC request")?;
         Ok(Some(req))
     }
 }
@@ -47,12 +54,18 @@ impl FrameWriter {
     pub async fn write_response(&mut self, resp: &Response) -> Result<()> {
         let mut bytes = serde_json::to_vec(resp).context("serializing response")?;
         bytes.push(b'\n');
-        self.inner.write_all(&bytes).await.context("writing response")?;
+        self.inner
+            .write_all(&bytes)
+            .await
+            .context("writing response")?;
         self.inner.flush().await.context("flushing")?;
         Ok(())
     }
 
-    pub async fn write_notification(&mut self, n: &ccdash_core::protocol::Notification) -> Result<()> {
+    pub async fn write_notification(
+        &mut self,
+        n: &ccdash_core::protocol::Notification,
+    ) -> Result<()> {
         let mut bytes = serde_json::to_vec(n).context("serializing notification")?;
         bytes.push(b'\n');
         self.inner.write_all(&bytes).await?;
@@ -87,7 +100,10 @@ mod tests {
         let mut reader = FrameReader::new(a_r);
         let got = reader.next_request().await.unwrap().unwrap();
         assert_eq!(got.method, "handshake");
-        assert!(reader.next_request().await.unwrap().is_none(), "EOF expected");
+        assert!(
+            reader.next_request().await.unwrap().is_none(),
+            "EOF expected"
+        );
         let _ = a_w; // keep alive
     }
 }

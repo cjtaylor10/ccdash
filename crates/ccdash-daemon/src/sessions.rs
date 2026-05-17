@@ -41,14 +41,22 @@ impl Manager {
                 disk.sessions
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
-            Err(e) => return Err(anyhow::Error::new(e).context(format!("reading {}", file.display()))),
+            Err(e) => {
+                return Err(anyhow::Error::new(e).context(format!("reading {}", file.display())))
+            }
         };
-        Ok(Self { file, meta: RwLock::new(meta), cache: RwLock::new(BTreeMap::new()) })
+        Ok(Self {
+            file,
+            meta: RwLock::new(meta),
+            cache: RwLock::new(BTreeMap::new()),
+        })
     }
 
     async fn write(&self) -> Result<()> {
         let meta = self.meta.read().await;
-        let disk = OnDisk { sessions: meta.clone() };
+        let disk = OnDisk {
+            sessions: meta.clone(),
+        };
         let s = toml::to_string_pretty(&disk).context("serializing sessions.toml")?;
         if let Some(parent) = self.file.parent() {
             fs::create_dir_all(parent).await?;
@@ -110,6 +118,7 @@ impl Manager {
         Ok((current, removed_ids))
     }
 
+    #[allow(dead_code)] // wired into RPC + polling loop in Phase 2
     pub async fn current(&self) -> Vec<Session> {
         self.cache.read().await.values().cloned().collect()
     }
@@ -142,7 +151,10 @@ fn build_session(p: &PaneRow, meta: &BTreeMap<String, SessionMeta>, now: i64) ->
 
 fn now_epoch() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -153,7 +165,9 @@ mod tests {
     #[tokio::test]
     async fn load_missing_file_returns_empty() {
         let dir = tempdir().unwrap();
-        let m = Manager::load(dir.path().join("sessions.toml")).await.unwrap();
+        let m = Manager::load(dir.path().join("sessions.toml"))
+            .await
+            .unwrap();
         assert!(m.current().await.is_empty());
     }
 
@@ -182,11 +196,14 @@ mod tests {
             cwd: "/tmp".into(),
         };
         let mut meta = BTreeMap::new();
-        meta.insert("$3".into(), SessionMeta {
-            project_id: Some(ProjectId("pid".into())),
-            worktree: Some("main".into()),
-            first_seen: 1_700_000_000,
-        });
+        meta.insert(
+            "$3".into(),
+            SessionMeta {
+                project_id: Some(ProjectId("pid".into())),
+                worktree: Some("main".into()),
+                first_seen: 1_700_000_000,
+            },
+        );
         let s = build_session(&pane, &meta, 0);
         assert_eq!(s.first_seen, 1_700_000_000);
         assert_eq!(s.worktree.as_deref(), Some("main"));

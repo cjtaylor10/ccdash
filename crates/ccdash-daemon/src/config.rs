@@ -22,7 +22,9 @@ pub struct Config {
 
 impl Config {
     pub fn resolved_socket(&self) -> PathBuf {
-        self.socket.clone().unwrap_or_else(paths::default_socket_path)
+        self.socket
+            .clone()
+            .unwrap_or_else(paths::default_socket_path)
     }
     pub fn resolved_data_dir(&self) -> PathBuf {
         self.data_dir.clone().unwrap_or_else(paths::data_dir)
@@ -46,9 +48,12 @@ mod tests {
     fn flags_override() {
         let c = Config::parse_from([
             "ccdash-daemon",
-            "--socket", "/tmp/x.sock",
-            "--data-dir", "/tmp/x",
-            "--log-level", "debug",
+            "--socket",
+            "/tmp/x.sock",
+            "--data-dir",
+            "/tmp/x",
+            "--log-level",
+            "debug",
         ]);
         assert_eq!(c.socket, Some(PathBuf::from("/tmp/x.sock")));
         assert_eq!(c.data_dir, Some(PathBuf::from("/tmp/x")));

@@ -1,5 +1,10 @@
 //! Recursively scans configured root directories for git repos.
 //! Limits depth to avoid descending into `node_modules`/build outputs.
+//!
+//! Phase 1 includes the implementation but no consumer; Phase 2 wires it
+//! into the RPC layer for the auto-detection / scan-with-confirm flow.
+
+#![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -8,8 +13,18 @@ const MAX_DEPTH: usize = 4;
 
 /// Skip these directory names while scanning.
 const SKIP_DIRS: &[&str] = &[
-    "node_modules", "target", ".git", ".cache", ".venv", "venv",
-    "dist", "build", ".next", ".turbo", "vendor", ".gradle",
+    "node_modules",
+    "target",
+    ".git",
+    ".cache",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+    "vendor",
+    ".gradle",
 ];
 
 /// Return the absolute paths of git-repo roots found under `roots`.
@@ -109,7 +124,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let worktree = dir.path().join("wt");
         std::fs::create_dir_all(&worktree).unwrap();
-        std::fs::write(worktree.join(".git"), "gitdir: /some/main/.git/worktrees/wt").unwrap();
+        std::fs::write(
+            worktree.join(".git"),
+            "gitdir: /some/main/.git/worktrees/wt",
+        )
+        .unwrap();
         let found = scan(&[dir.path().to_path_buf()]).await;
         assert_eq!(found, vec![worktree]);
     }

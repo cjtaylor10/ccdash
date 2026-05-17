@@ -64,7 +64,10 @@ mod tests {
     #[test]
     fn projects_toml_is_under_data_dir() {
         std::env::set_var("CCDASH_HOME", "/tmp/ccdash-test");
-        assert_eq!(projects_toml(), PathBuf::from("/tmp/ccdash-test/projects.toml"));
+        assert_eq!(
+            projects_toml(),
+            PathBuf::from("/tmp/ccdash-test/projects.toml")
+        );
         std::env::remove_var("CCDASH_HOME");
     }
 

@@ -15,7 +15,13 @@ async fn handshake_with_correct_token_succeeds() {
 async fn handshake_with_wrong_token_fails() {
     let h = Harness::spawn().await.unwrap();
     let mut c = h.connect().await.unwrap();
-    let resp = c.call("handshake", serde_json::json!({"token": "wrong", "client": "cli"})).await.unwrap();
+    let resp = c
+        .call(
+            "handshake",
+            serde_json::json!({"token": "wrong", "client": "cli"}),
+        )
+        .await
+        .unwrap();
     assert!(resp.error.is_some());
     assert_eq!(resp.error.unwrap().code, -32001);
 }

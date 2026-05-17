@@ -18,7 +18,9 @@ async fn main() -> Result<()> {
     let cfg = config::Config::parse();
 
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_new(&cfg.log_level).unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_new(&cfg.log_level).unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let state = state::AppState::bootstrap(cfg.resolved_data_dir()).await?;

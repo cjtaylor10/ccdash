@@ -20,7 +20,10 @@ pub struct ConnContext {
 
 impl ConnContext {
     pub fn new() -> Self {
-        Self { authed: false, subscriptions: HashSet::new() }
+        Self {
+            authed: false,
+            subscriptions: HashSet::new(),
+        }
     }
 }
 
@@ -57,7 +60,10 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
                 Ok(p) => p,
                 Err(e) => return Response::err(id, err(E_INVALID_PARAMS, e.to_string())),
             };
-            ctx.write().await.subscriptions.extend(params.topics.into_iter());
+            ctx.write()
+                .await
+                .subscriptions
+                .extend(params.topics.into_iter());
             Response::ok(id, json!({"subscribed": true}))
         }
         "project.list" => {
@@ -84,12 +90,10 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
                 Err(e) => Response::err(id, e),
             }
         }
-        "session.list" => {
-            match handlers::handle_session_list(state).await {
-                Ok(r) => Response::ok(id, serde_json::to_value(r).unwrap()),
-                Err(e) => Response::err(id, e),
-            }
-        }
+        "session.list" => match handlers::handle_session_list(state).await {
+            Ok(r) => Response::ok(id, serde_json::to_value(r).unwrap()),
+            Err(e) => Response::err(id, e),
+        },
         "session.launch" => {
             let params: SessionLaunchParams = match serde_json::from_value(req.params) {
                 Ok(p) => p,

@@ -29,9 +29,12 @@ impl Harness {
         assert!(bin.exists(), "daemon binary not found at {}", bin.display());
 
         let child = Command::new(&bin)
-            .arg("--socket").arg(&socket)
-            .arg("--data-dir").arg(&data_dir)
-            .arg("--log-level").arg("warn")
+            .arg("--socket")
+            .arg(&socket)
+            .arg("--data-dir")
+            .arg(&data_dir)
+            .arg("--log-level")
+            .arg("warn")
             .kill_on_drop(true)
             .spawn()
             .with_context(|| format!("spawning {}", bin.display()))?;
@@ -43,18 +46,36 @@ impl Harness {
         }
         anyhow::ensure!(socket.exists(), "daemon did not create socket within 3s");
 
-        let token = tokio::fs::read_to_string(data_dir.join("auth")).await?.trim().to_string();
-        Ok(Self { dir, socket, token, child })
+        let token = tokio::fs::read_to_string(data_dir.join("auth"))
+            .await?
+            .trim()
+            .to_string();
+        Ok(Self {
+            dir,
+            socket,
+            token,
+            child,
+        })
     }
 
     pub async fn connect(&self) -> Result<Conn> {
-        let stream = UnixStream::connect(&self.socket).await.context("connecting socket")?;
+        let stream = UnixStream::connect(&self.socket)
+            .await
+            .context("connecting socket")?;
         let (r, w) = stream.into_split();
-        Ok(Conn { reader: BufReader::new(r), writer: w, next_id: 1 })
+        Ok(Conn {
+            reader: BufReader::new(r),
+            writer: w,
+            next_id: 1,
+        })
     }
 
     pub async fn handshake(&self, conn: &mut Conn) -> Result<Response> {
-        conn.call("handshake", serde_json::json!({"token": self.token, "client": "cli"})).await
+        conn.call(
+            "handshake",
+            serde_json::json!({"token": self.token, "client": "cli"}),
+        )
+        .await
     }
 }
 

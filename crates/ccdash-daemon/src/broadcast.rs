@@ -13,28 +13,45 @@ const BUFFER: usize = 128;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[allow(dead_code)] // some variants published only from Phase 2+ (snapshots, session_updated)
 pub enum Event {
     /// Full snapshot — sent to clients on subscribe.
-    ProjectsSnapshot { projects: Vec<Project> },
-    SessionsSnapshot { sessions: Vec<Session> },
+    ProjectsSnapshot {
+        projects: Vec<Project>,
+    },
+    SessionsSnapshot {
+        sessions: Vec<Session>,
+    },
     /// Project added/removed/updated. Carries full updated project.
-    ProjectUpdated { project: Project },
-    ProjectRemoved { id: ccdash_core::domain::ProjectId },
+    ProjectUpdated {
+        project: Project,
+    },
+    ProjectRemoved {
+        id: ccdash_core::domain::ProjectId,
+    },
     /// Session lifecycle.
-    SessionLaunched { session: Session },
-    SessionUpdated { session: Session },
-    SessionRemoved { tmux_session_id: String },
+    SessionLaunched {
+        session: Session,
+    },
+    SessionUpdated {
+        session: Session,
+    },
+    SessionRemoved {
+        tmux_session_id: String,
+    },
 }
 
 impl Event {
     /// Which subscription topic this event belongs to.
     pub fn topic(&self) -> Topic {
         match self {
-            Event::ProjectsSnapshot { .. } | Event::ProjectUpdated { .. } | Event::ProjectRemoved { .. } => {
-                Topic::Projects
-            }
-            Event::SessionsSnapshot { .. } | Event::SessionLaunched { .. }
-            | Event::SessionUpdated { .. } | Event::SessionRemoved { .. } => Topic::Sessions,
+            Event::ProjectsSnapshot { .. }
+            | Event::ProjectUpdated { .. }
+            | Event::ProjectRemoved { .. } => Topic::Projects,
+            Event::SessionsSnapshot { .. }
+            | Event::SessionLaunched { .. }
+            | Event::SessionUpdated { .. }
+            | Event::SessionRemoved { .. } => Topic::Sessions,
         }
     }
 }
@@ -76,7 +93,9 @@ mod tests {
     async fn subscriber_receives_published_event() {
         let bus = Bus::new();
         let mut rx = bus.subscribe();
-        bus.publish(Event::ProjectRemoved { id: ProjectId("abc".into()) });
+        bus.publish(Event::ProjectRemoved {
+            id: ProjectId("abc".into()),
+        });
         let evt = rx.recv().await.unwrap();
         match evt {
             Event::ProjectRemoved { id } => assert_eq!(id.0, "abc"),
@@ -86,15 +105,21 @@ mod tests {
 
     #[tokio::test]
     async fn topic_classification() {
-        let evt = Event::SessionRemoved { tmux_session_id: "$1".into() };
+        let evt = Event::SessionRemoved {
+            tmux_session_id: "$1".into(),
+        };
         assert_eq!(evt.topic(), Topic::Sessions);
-        let evt = Event::ProjectRemoved { id: ProjectId("a".into()) };
+        let evt = Event::ProjectRemoved {
+            id: ProjectId("a".into()),
+        };
         assert_eq!(evt.topic(), Topic::Projects);
     }
 
     #[tokio::test]
     async fn publish_with_no_subscribers_does_not_panic() {
         let bus = Bus::new();
-        bus.publish(Event::SessionRemoved { tmux_session_id: "$0".into() });
+        bus.publish(Event::SessionRemoved {
+            tmux_session_id: "$0".into(),
+        });
     }
 }

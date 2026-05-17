@@ -70,7 +70,9 @@ mod tests {
     fn generate_token_returns_64_hex_chars() {
         let t = generate_token();
         assert_eq!(t.len(), 64);
-        assert!(t.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(t
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     }
 
     #[test]

@@ -14,6 +14,7 @@ pub struct AppState {
     pub sessions: Arc<Manager>,
     pub bus: Bus,
     pub auth_token: Arc<String>,
+    #[allow(dead_code)] // read by file watchers + ports module in Phase 2
     pub data_dir: PathBuf,
 }
 

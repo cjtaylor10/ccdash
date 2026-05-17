@@ -31,10 +31,14 @@ fn parse(porcelain: &str, project_path: &Path) -> Vec<Worktree> {
     let mut current_path: Option<PathBuf> = None;
     let mut current_branch = String::from("(detached)");
 
-    let mut flush = |path: Option<PathBuf>, branch: &str, out: &mut Vec<Worktree>| {
+    let flush = |path: Option<PathBuf>, branch: &str, out: &mut Vec<Worktree>| {
         if let Some(p) = path {
             let is_primary = p == project_path;
-            out.push(Worktree { path: p, branch: branch.to_string(), is_primary });
+            out.push(Worktree {
+                path: p,
+                branch: branch.to_string(),
+                is_primary,
+            });
         }
     };
 

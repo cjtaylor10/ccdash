@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Top-level JSON-RPC 2.0 request envelope.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Request {
-    pub jsonrpc: String, // always "2.0"
+    pub jsonrpc: String,       // always "2.0"
     pub id: serde_json::Value, // number or string per spec; we accept both
     pub method: String,
     pub params: serde_json::Value,
@@ -28,10 +28,20 @@ pub struct Response {
 
 impl Response {
     pub fn ok(id: serde_json::Value, result: serde_json::Value) -> Self {
-        Self { jsonrpc: "2.0".into(), id, result: Some(result), error: None }
+        Self {
+            jsonrpc: "2.0".into(),
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
     pub fn err(id: serde_json::Value, error: RpcError) -> Self {
-        Self { jsonrpc: "2.0".into(), id, result: None, error: Some(error) }
+        Self {
+            jsonrpc: "2.0".into(),
+            id,
+            result: None,
+            error: Some(error),
+        }
     }
 }
 
@@ -55,7 +65,11 @@ pub struct Notification {
 
 impl Notification {
     pub fn new(method: impl Into<String>, params: serde_json::Value) -> Self {
-        Self { jsonrpc: "2.0".into(), method: method.into(), params }
+        Self {
+            jsonrpc: "2.0".into(),
+            method: method.into(),
+            params,
+        }
     }
 }
 
@@ -159,17 +173,27 @@ mod tests {
     fn response_ok_omits_error_field() {
         let r = Response::ok(serde_json::json!(1), serde_json::json!({"ok": true}));
         let s = serde_json::to_string(&r).unwrap();
-        assert!(!s.contains("\"error\""), "ok response should not serialize null error");
+        assert!(
+            !s.contains("\"error\""),
+            "ok response should not serialize null error"
+        );
     }
 
     #[test]
     fn response_err_omits_result_field() {
         let r = Response::err(
             serde_json::json!(1),
-            RpcError { code: -32000, message: "fail".into(), data: None },
+            RpcError {
+                code: -32000,
+                message: "fail".into(),
+                data: None,
+            },
         );
         let s = serde_json::to_string(&r).unwrap();
-        assert!(!s.contains("\"result\""), "err response should not serialize null result");
+        assert!(
+            !s.contains("\"result\""),
+            "err response should not serialize null result"
+        );
     }
 
     #[test]
@@ -180,7 +204,10 @@ mod tests {
 
     #[test]
     fn handshake_params_roundtrip() {
-        let p = HandshakeParams { token: "deadbeef".into(), client: ClientKind::Ui };
+        let p = HandshakeParams {
+            token: "deadbeef".into(),
+            client: ClientKind::Ui,
+        };
         let s = serde_json::to_string(&p).unwrap();
         let back: HandshakeParams = serde_json::from_str(&s).unwrap();
         assert_eq!(p, back);

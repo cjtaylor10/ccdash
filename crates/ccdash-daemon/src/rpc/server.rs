@@ -16,12 +16,14 @@ use tracing::{error, info, warn};
 pub async fn serve(state: AppState, socket: &Path) -> Result<()> {
     // Remove stale socket if it exists.
     if socket.exists() {
-        std::fs::remove_file(socket).with_context(|| format!("removing stale socket {}", socket.display()))?;
+        std::fs::remove_file(socket)
+            .with_context(|| format!("removing stale socket {}", socket.display()))?;
     }
     if let Some(parent) = socket.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    let listener = UnixListener::bind(socket).with_context(|| format!("binding {}", socket.display()))?;
+    let listener =
+        UnixListener::bind(socket).with_context(|| format!("binding {}", socket.display()))?;
     // chmod 0600
     let perms = std::fs::Permissions::from_mode(0o600);
     std::fs::set_permissions(socket, perms).with_context(|| "setting socket permissions")?;

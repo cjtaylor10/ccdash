@@ -32,9 +32,14 @@ impl Registry {
         let projects = match fs::read_to_string(&file).await {
             Ok(s) => Self::parse(&s)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(anyhow::Error::new(e).context(format!("reading {}", file.display()))),
+            Err(e) => {
+                return Err(anyhow::Error::new(e).context(format!("reading {}", file.display())))
+            }
         };
-        Ok(Self { file, inner: RwLock::new(projects) })
+        Ok(Self {
+            file,
+            inner: RwLock::new(projects),
+        })
     }
 
     fn parse(s: &str) -> Result<Vec<Project>> {
@@ -56,18 +61,33 @@ impl Registry {
     async fn write(&self) -> Result<()> {
         let projects = self.inner.read().await;
         let disk = OnDisk {
-            projects: projects.iter().map(|p| {
-                (p.id.0.clone(), ProjectRow { name: p.name.clone(), path: p.path.clone() })
-            }).collect(),
+            projects: projects
+                .iter()
+                .map(|p| {
+                    (
+                        p.id.0.clone(),
+                        ProjectRow {
+                            name: p.name.clone(),
+                            path: p.path.clone(),
+                        },
+                    )
+                })
+                .collect(),
         };
         let toml_str = toml::to_string_pretty(&disk).context("serializing projects.toml")?;
         if let Some(parent) = self.file.parent() {
-            fs::create_dir_all(parent).await.with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent)
+                .await
+                .with_context(|| format!("creating {}", parent.display()))?;
         }
         // Atomic write: write to tmp, then rename.
         let tmp = self.file.with_extension("toml.tmp");
-        fs::write(&tmp, toml_str).await.with_context(|| format!("writing {}", tmp.display()))?;
-        fs::rename(&tmp, &self.file).await.with_context(|| format!("renaming to {}", self.file.display()))?;
+        fs::write(&tmp, toml_str)
+            .await
+            .with_context(|| format!("writing {}", tmp.display()))?;
+        fs::rename(&tmp, &self.file)
+            .await
+            .with_context(|| format!("renaming to {}", self.file.display()))?;
         Ok(())
     }
 
@@ -76,12 +96,19 @@ impl Registry {
     }
 
     pub async fn add(&self, path: PathBuf, name: Option<String>) -> Result<Project> {
-        let canonical = std::fs::canonicalize(&path).with_context(|| format!("canonicalizing {}", path.display()))?;
+        let canonical = std::fs::canonicalize(&path)
+            .with_context(|| format!("canonicalizing {}", path.display()))?;
         let mut projects = self.inner.write().await;
         if let Some(existing) = projects.iter().find(|p| p.path == canonical) {
             return Ok(existing.clone());
         }
-        let name = name.unwrap_or_else(|| canonical.file_name().and_then(|s| s.to_str()).unwrap_or("project").to_string());
+        let name = name.unwrap_or_else(|| {
+            canonical
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("project")
+                .to_string()
+        });
         let project = Project {
             id: ProjectId::new(),
             name,
@@ -110,7 +137,11 @@ impl Registry {
     /// Replace the worktrees for a given project (called by the worktrees module
     /// after `git worktree list`). No-op if id is unknown. Does NOT persist —
     /// worktree state is runtime-only.
-    pub async fn set_worktrees(&self, id: &ProjectId, worktrees: Vec<ccdash_core::domain::Worktree>) {
+    pub async fn set_worktrees(
+        &self,
+        id: &ProjectId,
+        worktrees: Vec<ccdash_core::domain::Worktree>,
+    ) {
         let mut projects = self.inner.write().await;
         if let Some(p) = projects.iter_mut().find(|p| &p.id == id) {
             p.worktrees = worktrees;
@@ -126,7 +157,9 @@ mod tests {
     #[tokio::test]
     async fn load_missing_file_returns_empty() {
         let dir = tempdir().unwrap();
-        let reg = Registry::load(dir.path().join("projects.toml")).await.unwrap();
+        let reg = Registry::load(dir.path().join("projects.toml"))
+            .await
+            .unwrap();
         assert!(reg.list().await.is_empty());
     }
 
@@ -135,7 +168,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let project_dir = dir.path().join("proj1");
         std::fs::create_dir(&project_dir).unwrap();
-        let reg = Registry::load(dir.path().join("projects.toml")).await.unwrap();
+        let reg = Registry::load(dir.path().join("projects.toml"))
+            .await
+            .unwrap();
         let p = reg.add(project_dir.clone(), None).await.unwrap();
         assert_eq!(p.name, "proj1");
         assert_eq!(reg.list().await.len(), 1);
@@ -146,7 +181,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let project_dir = dir.path().join("proj1");
         std::fs::create_dir(&project_dir).unwrap();
-        let reg = Registry::load(dir.path().join("projects.toml")).await.unwrap();
+        let reg = Registry::load(dir.path().join("projects.toml"))
+            .await
+            .unwrap();
         let p1 = reg.add(project_dir.clone(), None).await.unwrap();
         let p2 = reg.add(project_dir.clone(), None).await.unwrap();
         assert_eq!(p1.id, p2.id);
@@ -161,7 +198,10 @@ mod tests {
         let file = dir.path().join("projects.toml");
 
         let reg = Registry::load(file.clone()).await.unwrap();
-        let added = reg.add(project_dir.clone(), Some("custom".into())).await.unwrap();
+        let added = reg
+            .add(project_dir.clone(), Some("custom".into()))
+            .await
+            .unwrap();
 
         let reg2 = Registry::load(file).await.unwrap();
         let list = reg2.list().await;
@@ -173,7 +213,9 @@ mod tests {
     #[tokio::test]
     async fn remove_unknown_returns_false() {
         let dir = tempdir().unwrap();
-        let reg = Registry::load(dir.path().join("projects.toml")).await.unwrap();
+        let reg = Registry::load(dir.path().join("projects.toml"))
+            .await
+            .unwrap();
         assert!(!reg.remove(&ProjectId("ghost".into())).await.unwrap());
     }
 }

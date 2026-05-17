@@ -8,8 +8,8 @@ use tokio::process::Command;
 /// One tmux pane row, parsed from `tmux list-panes -a -F ...`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneRow {
-    pub session_id: String,    // e.g. "$3"
-    pub session_name: String,  // e.g. "ccdash:lp:main"
+    pub session_id: String,   // e.g. "$3"
+    pub session_name: String, // e.g. "ccdash:lp:main"
     pub pane_pid: i32,
     pub pane_cmd: String,
     pub cwd: String,
@@ -17,8 +17,14 @@ pub struct PaneRow {
 
 /// True iff `tmux` is on PATH and a server is reachable. Tries `tmux -V` first
 /// (always succeeds if installed), then `tmux ls` (succeeds only if a server is running).
+#[allow(dead_code)] // wired into daemon.health RPC in Phase 2
 pub async fn check_installed() -> bool {
-    Command::new("tmux").arg("-V").output().await.map(|o| o.status.success()).unwrap_or(false)
+    Command::new("tmux")
+        .arg("-V")
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// List all panes across all sessions, returning a tuple per pane.
@@ -51,7 +57,13 @@ fn parse_panes(s: &str) -> Vec<PaneRow> {
             let pane_pid: i32 = it.next()?.parse().ok()?;
             let pane_cmd = it.next()?.to_string();
             let cwd = it.next()?.to_string();
-            Some(PaneRow { session_id, session_name, pane_pid, pane_cmd, cwd })
+            Some(PaneRow {
+                session_id,
+                session_name,
+                pane_pid,
+                pane_cmd,
+                cwd,
+            })
         })
         .collect()
 }
@@ -63,8 +75,10 @@ pub async fn new_session(name: &str, cwd: &Path, command: &str) -> Result<String
         .args([
             "new-session",
             "-d",
-            "-s", name,
-            "-c", &cwd.to_string_lossy(),
+            "-s",
+            name,
+            "-c",
+            &cwd.to_string_lossy(),
             command,
         ])
         .status()
@@ -116,7 +130,8 @@ mod tests {
 
     #[test]
     fn parse_panes_two_rows() {
-        let input = "$0\tccdash:a:main\t1234\tclaude\t/home/u/a\n$1\tccdash:b:main\t5678\tzsh\t/home/u/b\n";
+        let input =
+            "$0\tccdash:a:main\t1234\tclaude\t/home/u/a\n$1\tccdash:b:main\t5678\tzsh\t/home/u/b\n";
         let parsed = parse_panes(input);
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].session_id, "$0");
