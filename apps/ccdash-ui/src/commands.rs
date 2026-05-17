@@ -105,9 +105,30 @@ pub async fn terminal_resize(
 }
 
 #[tauri::command]
-pub async fn terminal_close(
-    pty: tauri::State<'_, PtyManager>,
-    id: String,
-) -> Result<(), String> {
+pub async fn terminal_close(pty: tauri::State<'_, PtyManager>, id: String) -> Result<(), String> {
     pty.close(&id).await
+}
+
+// === Window commands ===
+
+#[tauri::command]
+pub async fn open_new_window(app: tauri::AppHandle) -> Result<(), String> {
+    crate::windows::open_new_window(&app)
+}
+
+#[tauri::command]
+pub async fn list_windows(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    use tauri::Manager;
+    Ok(app.webview_windows().into_keys().collect::<Vec<_>>())
+}
+
+#[tauri::command]
+pub async fn publish_window_state(
+    app: tauri::AppHandle,
+    from: String,
+    state: serde_json::Value,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    app.emit(&format!("window-state-broadcast::{}", from), state)
+        .map_err(|e| e.to_string())
 }

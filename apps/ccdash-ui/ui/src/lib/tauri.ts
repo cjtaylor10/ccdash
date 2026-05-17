@@ -62,3 +62,29 @@ export const tauri = {
   portsList: () => invoke<{ running: PortBinding[]; declared: DeclaredPort[] }>('ports_list'),
   plansGet: (projectId: string) => invoke<{ plans: Plan[] }>('plans_get', { projectId }),
 };
+
+export const terminal = {
+  open: (command: string[], rows: number, cols: number) =>
+    invoke<string>('terminal_open', { command, rows, cols }),
+  write: (id: string, data: Uint8Array) =>
+    invoke<void>('terminal_write', { id, data: Array.from(data) }),
+  resize: (id: string, rows: number, cols: number) =>
+    invoke<void>('terminal_resize', { id, rows, cols }),
+  close: (id: string) => invoke<void>('terminal_close', { id }),
+};
+
+import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+
+export const windows = {
+  openNew: () => invoke<void>('open_new_window'),
+  list: () => invoke<string[]>('list_windows'),
+  publishState: (from: string, state: unknown) =>
+    invoke<void>('publish_window_state', { from, state }),
+  listenState: <T = unknown>(
+    from: string,
+    handler: (state: T) => void,
+  ): Promise<UnlistenFn> =>
+    tauriListen<T>(`window-state-broadcast::${from}`, (e) => handler(e.payload)),
+  currentLabel: () => getCurrentWindow().label,
+};

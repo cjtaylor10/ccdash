@@ -130,5 +130,37 @@ wrap `ccdash_core::Client`.
 
 **Tag:** `phase-3-done`.
 
+## 2026-05-17 — Phase 4 (terminals + multi-window mirror) — Complete
+
+**Result:** Embedded interactive terminals via portable-pty + xterm.js wrapping
+`tmux attach-session`. Daemon broadcast events stream to the frontend via Tauri's
+event bus (replacing the Phase 3 5s polling for projects/sessions topics).
+Multiple windows can be opened, and any window can mirror another window's
+selected project + active tab.
+
+**Plan deviations recorded:**
+
+1. **Reader thread does not use futures::executor::block_on**. Plan called for
+   spawning a std thread that locks a tokio Mutex via block_on. In practice,
+   the cleaner pattern is: clone the reader BEFORE spawning the std thread
+   (the tokio mutex lives only in the async task that calls open()). The thread
+   just owns its Box<dyn Read>. Simpler, no `futures` runtime entanglement.
+   `futures` workspace dep retained for future use but not currently consumed.
+
+2. **publish_window_state uses `app.emit` (broadcast)** instead of `emit_to`.
+   Tauri's `emit_to` requires a window label, but our followers don't know in
+   advance which window to listen to — they subscribe by topic `window-state-broadcast::<from>`.
+   Broadcasting is fine because each topic is uniquely keyed by the source
+   window's label; followers filter by topic, not by recipient.
+
+3. **No automated test for the pty bridge or window IPC** — both are
+   visual/interactive. The Rust code builds clean and clippy is strict; daemon
+   tests (82) all still pass.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean, `cargo clippy --workspace --all-targets -- -D warnings` clean, `cargo test --workspace` → 82 passed / 0 failed / 1 ignored. `cargo build -p ccdash-ui` succeeds.
+
+**Tag:** `phase-4-done`.
+
+
 
 

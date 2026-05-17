@@ -1,11 +1,18 @@
 <script lang="ts">
-  import { sessions } from '$lib/stores';
+  import { sessions, terminalPane } from '$lib/stores';
+
+  function attach(sessionId: string) {
+    terminalPane.set({
+      command: ['tmux', 'attach-session', '-t', sessionId],
+      mode: 'live',
+    });
+  }
 </script>
 
 <div>
   <table>
     <thead>
-      <tr><th>tmux id</th><th>name</th><th>pid</th><th>cwd</th><th>state</th></tr>
+      <tr><th>tmux id</th><th>name</th><th>pid</th><th>cwd</th><th>state</th><th></th></tr>
     </thead>
     <tbody>
       {#each $sessions as s (s.tmux_session_id)}
@@ -15,9 +22,10 @@
           <td>{s.pid}</td>
           <td><code>{s.cwd}</code></td>
           <td class={s.state === 'running' ? 'running' : 'exited'}>{s.state}</td>
+          <td><button on:click={() => attach(s.tmux_session_id)}>Attach</button></td>
         </tr>
       {:else}
-        <tr><td colspan="5" class="empty">(no sessions)</td></tr>
+        <tr><td colspan="6" class="empty">(no sessions)</td></tr>
       {/each}
     </tbody>
   </table>

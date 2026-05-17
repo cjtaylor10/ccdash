@@ -14,3 +14,12 @@ export const ports = writable<{ running: PortBinding[]; declared: DeclaredPort[]
 export const plans = writable<Plan[]>([]);
 
 export const activeTab = writable<'sessions' | 'ports' | 'plans'>('sessions');
+
+export type TerminalPaneState = {
+  command: string[];
+  mode: 'live';
+};
+export const terminalPane = writable<TerminalPaneState | null>(null);
+
+/** When set to a window label, this window mirrors that one's UI state. */
+export const mirrorTarget = writable<string | null>(null);

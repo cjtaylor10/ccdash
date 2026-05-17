@@ -6,6 +6,7 @@ mod client_state;
 mod commands;
 mod event_bridge;
 mod pty;
+mod windows;
 
 use tracing_subscriber::EnvFilter;
 
@@ -36,6 +37,9 @@ fn main() {
             commands::terminal_write,
             commands::terminal_resize,
             commands::terminal_close,
+            commands::open_new_window,
+            commands::list_windows,
+            commands::publish_window_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
