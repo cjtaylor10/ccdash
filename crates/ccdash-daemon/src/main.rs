@@ -2,6 +2,7 @@
 
 mod broadcast;
 mod config;
+mod plans;
 mod ports;
 mod projects;
 mod rpc;
