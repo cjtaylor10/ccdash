@@ -68,25 +68,57 @@ fn parse_panes(s: &str) -> Vec<PaneRow> {
         .collect()
 }
 
-/// Launch a new detached tmux session running `command` in `cwd` with name `name`.
-/// Sets `remain-on-exit on` so the pane survives when `command` exits.
-pub async fn new_session(name: &str, cwd: &Path, command: &str) -> Result<String> {
-    let status = Command::new("tmux")
-        .args([
-            "new-session",
-            "-d",
-            "-s",
-            name,
-            "-c",
-            &cwd.to_string_lossy(),
-            command,
-        ])
-        .status()
-        .await
-        .context("running tmux new-session")?;
-    if !status.success() {
-        anyhow::bail!("tmux new-session failed (status {:?})", status.code());
+/// Launch a new detached tmux session running `command` in `cwd` with name
+/// `requested_name`. If a tmux session with that name already exists, retries
+/// with `requested_name_2`, `_3`, … up to `_99` until a fresh name lands so
+/// "just launch again" works without the user having to clean up stale
+/// sessions. Sets `remain-on-exit on` so the pane survives when `command`
+/// exits. Returns `(session_id, actual_name)`.
+pub async fn new_session(
+    requested_name: &str,
+    cwd: &Path,
+    command: &str,
+) -> Result<(String, String)> {
+    for suffix in 0..100 {
+        let name = if suffix == 0 {
+            requested_name.to_string()
+        } else {
+            format!("{}_{}", requested_name, suffix + 1)
+        };
+        let output = Command::new("tmux")
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                &name,
+                "-c",
+                &cwd.to_string_lossy(),
+                command,
+            ])
+            .output()
+            .await
+            .context("running tmux new-session")?;
+        if output.status.success() {
+            return finalize_new_session(&name).await;
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("duplicate session") {
+            // try the next suffix
+            continue;
+        }
+        anyhow::bail!(
+            "tmux new-session failed (status {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        );
     }
+    anyhow::bail!(
+        "tmux new-session failed: 100 collisions on prefix {}",
+        requested_name
+    )
+}
+
+async fn finalize_new_session(name: &str) -> Result<(String, String)> {
     // Look up the stable session_id (e.g. "$3") via the session_name we just created.
     let output = Command::new("tmux")
         .args(["display-message", "-p", "-t", name, "#{session_id}"])
@@ -108,7 +140,7 @@ pub async fn new_session(name: &str, cwd: &Path, command: &str) -> Result<String
         .output()
         .await;
 
-    Ok(session_id)
+    Ok((session_id, name.to_string()))
 }
 
 /// Kill the tmux session by id (e.g. "$3").
@@ -161,7 +193,7 @@ mod tests {
         }
         let name = format!("ccdash-smoketest-{}", std::process::id());
         let cwd = std::env::current_dir().unwrap();
-        let id = new_session(&name, &cwd, "sleep 30").await.unwrap();
+        let (id, _name) = new_session(&name, &cwd, "sleep 30").await.unwrap();
         assert!(id.starts_with('$'));
         let panes = list_panes().await.unwrap();
         assert!(panes.iter().any(|p| p.session_id == id));

@@ -197,7 +197,7 @@ pub async fn handle_session_launch(
     let safe_proj = sanitize(&project.name);
     let name = format!("ccdash_{}_{}", safe_proj, safe_wt);
 
-    let session_id = tmux::new_session(&name, &cwd, &cmd)
+    let (session_id, actual_name) = tmux::new_session(&name, &cwd, &cmd)
         .await
         .map_err(|e| err(E_INTERNAL, e.to_string()))?;
     state
@@ -216,7 +216,7 @@ pub async fn handle_session_launch(
         .find(|s| s.tmux_session_id == session_id)
         .unwrap_or_else(|| Session {
             tmux_session_id: session_id,
-            name,
+            name: actual_name,
             project_id: Some(project.id.clone()),
             worktree: None,
             cwd,

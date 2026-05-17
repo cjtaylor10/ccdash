@@ -94,14 +94,19 @@ impl Manager {
     /// the previous cache but gone now.
     pub async fn refresh(&self) -> Result<(Vec<Session>, Vec<String>)> {
         let panes = tmux::list_panes().await?;
-        let claude_panes: Vec<_> = panes
+        let meta = self.meta.read().await.clone();
+
+        // A pane is shown if it's running `claude` OR if we have metadata for
+        // its session_id (i.e. we launched it). The latter case covers stale
+        // sessions where claude exited but remain-on-exit kept the pane —
+        // users need to see those to kill them or relaunch.
+        let visible_panes: Vec<_> = panes
             .into_iter()
-            .filter(|p| p.pane_cmd == "claude")
+            .filter(|p| p.pane_cmd == "claude" || meta.contains_key(&p.session_id))
             .collect();
 
-        let meta = self.meta.read().await.clone();
         let now = now_epoch();
-        let new_sessions: BTreeMap<String, Session> = claude_panes
+        let new_sessions: BTreeMap<String, Session> = visible_panes
             .iter()
             .map(|p| build_session(p, &meta, now))
             .map(|s| (s.tmux_session_id.clone(), s))
@@ -137,6 +142,14 @@ impl Manager {
 
 fn build_session(p: &PaneRow, meta: &BTreeMap<String, SessionMeta>, now: i64) -> Session {
     let m = meta.get(&p.session_id);
+    // State: Running if claude is the foreground command; Exited if we have
+    // metadata for this session but the foreground command is something else
+    // (typically the shell after claude exited under remain-on-exit).
+    let state = if p.pane_cmd == "claude" {
+        SessionState::Running
+    } else {
+        SessionState::Exited
+    };
     Session {
         tmux_session_id: p.session_id.clone(),
         name: p.session_name.clone(),
@@ -144,7 +157,7 @@ fn build_session(p: &PaneRow, meta: &BTreeMap<String, SessionMeta>, now: i64) ->
         worktree: m.and_then(|m| m.worktree.clone()),
         cwd: PathBuf::from(&p.cwd),
         pid: p.pane_pid,
-        state: SessionState::Running,
+        state,
         first_seen: m.map(|m| m.first_seen).unwrap_or(now),
     }
 }
