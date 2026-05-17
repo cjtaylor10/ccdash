@@ -3,6 +3,7 @@
 mod broadcast;
 mod config;
 mod projects;
+mod sessions;
 mod tmux;
 mod worktrees;
 
