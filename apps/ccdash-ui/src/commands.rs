@@ -133,6 +133,62 @@ pub async fn publish_window_state(
         .map_err(|e| e.to_string())
 }
 
+// === Project management ===
+
+#[tauri::command]
+pub async fn project_add(
+    state: State<'_, ClientState>,
+    path: String,
+    name: Option<String>,
+) -> Result<Value, String> {
+    let mut params = serde_json::Map::new();
+    params.insert("path".into(), Value::String(path));
+    if let Some(n) = name {
+        params.insert("name".into(), Value::String(n));
+    }
+    call_method(&state, "project.add", Value::Object(params)).await
+}
+
+#[tauri::command]
+pub async fn project_remove(state: State<'_, ClientState>, id: String) -> Result<Value, String> {
+    call_method(&state, "project.remove", serde_json::json!({ "id": id })).await
+}
+
+#[tauri::command]
+pub async fn session_launch(
+    state: State<'_, ClientState>,
+    project_id: String,
+    worktree: Option<String>,
+    command: Option<String>,
+    force_token: Option<String>,
+) -> Result<Value, String> {
+    let mut params = serde_json::Map::new();
+    params.insert("project_id".into(), Value::String(project_id));
+    if let Some(w) = worktree {
+        params.insert("worktree".into(), Value::String(w));
+    }
+    if let Some(c) = command {
+        params.insert("command".into(), Value::String(c));
+    }
+    if let Some(t) = force_token {
+        params.insert("force_token".into(), Value::String(t));
+    }
+    call_method(&state, "session.launch", Value::Object(params)).await
+}
+
+#[tauri::command]
+pub async fn session_kill(
+    state: State<'_, ClientState>,
+    tmux_session_id: String,
+) -> Result<Value, String> {
+    call_method(
+        &state,
+        "session.kill",
+        serde_json::json!({ "tmux_session_id": tmux_session_id }),
+    )
+    .await
+}
+
 /// Diagnostic: write a message to the daemon's ui log file. Used by the
 /// frontend to surface JS errors that would otherwise be invisible.
 #[tauri::command]
