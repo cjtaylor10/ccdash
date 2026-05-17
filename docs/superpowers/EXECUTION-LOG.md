@@ -352,8 +352,65 @@ These all involve clicking inside the WKWebView which can't be triggered by
 AX scripting from outside. The user can verify each by clicking the relevant
 button in the running UI.
 
+## 2026-05-17 — Phase 6 (UI parity with CLI) — Complete
 
+**Result:** All four CLI-only operations are exposed in the UI. Sidebar gets a
+"+ Add" button that opens a native folder picker via `tauri-plugin-dialog`
+and calls `project.add`; right-clicking a project row opens a context menu
+with "Remove project" (confirm-gated, calls `project.remove`). Top bar gets
+a "Launch session" button that opens a modal with project + worktree +
+command-override pickers and calls `session.launch`. Each row in
+SessionsView gets a Kill button (confirm-gated, calls `session.kill`).
 
+**Plan deviations recorded:**
+
+1. **Port-conflict remediation incomplete.** The LaunchDialog surfaces the
+   daemon's "port conflict; pass force_token to bypass" message but cannot
+   extract the `force_token` for one-click rebind, because the Tauri command
+   bridge in `commands.rs::call_method` only forwards `error.message`, not
+   `error.data`. For v0.2.0 the user can use the new Kill button to
+   terminate the conflicting session and retry. Plumbing `error.data` (so
+   the dialog can offer "Kill conflicting" / "Launch anyway" buttons) is
+   deferred to Phase 7 polish. The PortConflict types and `isPortConflictMessage`
+   helper landed in tauri.ts so the UI can light up immediately when the
+   data does flow through.
+
+2. **Combined task commits.** The plan structured 10 tasks; in practice
+   tasks 5–7 were combined into a single commit because they were all UI
+   changes that needed the same `pnpm build` verification gate. Each
+   logical unit (sidebar, sessions kill, launch dialog) is still a
+   separately reviewable diff; just bundled to avoid three round-trips of
+   the same build command.
+
+3. **Workspace + UI version bump.** Bumped `Cargo.toml` workspace version,
+   `apps/ccdash-ui/ui/package.json`, and `apps/ccdash-ui/tauri.conf.json`
+   to `0.2.0`. Done as a separate commit (`v0.2.0: bump workspace + UI
+   versions`) so the version-bump diff is reviewable in isolation.
+
+4. **gh release initial misroute.** First `gh release create` ran from
+   `/tmp/homebrew-ccdash-tap/` (after pushing the tap update) and created
+   the release on the tap repo. Deleted with `gh release delete --repo
+   cjtaylor10/homebrew-ccdash-tap` and re-issued with explicit
+   `--repo cjtaylor10/ccdash`. No user-visible impact; just procedural.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 82 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` produces `packaging/dist/ccdash-0.2.0.tar.gz`,
+formula sha256 updated to `8c9a3f0378bbcbd7876e9149e631829cd72f0cba7dbecfd29bd44b1d1c551eed`
+(GitHub source archive of v0.2.0), `brew upgrade cjtaylor10/ccdash-tap/ccdash`
+succeeds on this machine and produces `ccdash 0.2.0`. `ccdash status`
+reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** the four new UI interactions (folder picker
+modal, sidebar context menu, launch modal, kill confirm). Code paths
+exercised by `pnpm build` (which type-checks Svelte components) and
+indirectly by the daemon test suite. User must click to confirm visual
+layout and the Tauri-side dialog plugin actually opens a macOS folder
+picker.
+
+**Tags:** `phase-6-done`, `v0.2.0`.
 
 
 
