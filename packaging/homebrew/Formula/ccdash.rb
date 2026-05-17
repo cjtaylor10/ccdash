@@ -6,7 +6,7 @@ class Ccdash < Formula
   # Source-build formula. When precompiled release artifacts are hosted,
   # replace `url` and update `sha256`.
   url "https://github.com/cjtaylor10/ccdash/archive/refs/tags/v#{version}.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "a5f46c6b56578b18768d34663f1b475021b82cd0f77e6e3f0249c760eb729432"
   license "MIT"
 
   depends_on "rust" => :build
