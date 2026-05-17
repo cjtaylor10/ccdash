@@ -132,3 +132,15 @@ pub async fn publish_window_state(
     app.emit(&format!("window-state-broadcast::{}", from), state)
         .map_err(|e| e.to_string())
 }
+
+/// Diagnostic: write a message to the daemon's ui log file. Used by the
+/// frontend to surface JS errors that would otherwise be invisible.
+#[tauri::command]
+pub async fn log_from_frontend(level: String, message: String) -> Result<(), String> {
+    match level.as_str() {
+        "error" => tracing::error!(target: "ccdash_ui_frontend", "{}", message),
+        "warn" => tracing::warn!(target: "ccdash_ui_frontend", "{}", message),
+        _ => tracing::info!(target: "ccdash_ui_frontend", "{}", message),
+    }
+    Ok(())
+}

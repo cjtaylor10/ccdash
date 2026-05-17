@@ -217,6 +217,76 @@ Deferred to v0.2 (per spec §10):
 - First-run wizard inside the UI
 - Live edit of plan markdown from the dashboard
 
+---
+
+## 2026-05-17 — Smoke Test + Bug Fixes
+
+After tagging v0.1.0, ran an end-to-end smoke test. The daemon + CLI worked
+flawlessly. The UI did not. Four real bugs found and fixed:
+
+**Bug 1: Unsigned .app blocked by macOS sandbox.** The first `cargo tauri build`
+produced a `ccdash.app` that crashed its WebContent subprocess with `error 159:
+"Connection init failed at lookup"` — a sandbox restriction on unsigned binaries.
+Fixed by ad-hoc signing the bundle:
+```bash
+codesign --force --deep --sign - target/release/bundle/macos/ccdash.app
+```
+This is now done automatically by `packaging/scripts/release.sh` and the
+Homebrew formula's install step.
+
+**Bug 2: SvelteKit + Svelte 5 + Tauri 2 didn't hydrate.** With `@sveltejs/kit`
++ `adapter-static` + Svelte 5.55, the generated `index.html`'s `kit.start()`
+call failed silently inside Tauri's webview. JS event loop was running
+(`setTimeout` worked) but the page component's `onMount` never fired. Spent
+~30 minutes trying layout/config variants; none worked. **Replaced SvelteKit
+with plain Vite + Svelte 5**. Now `apps/ccdash-ui/ui/src/main.ts` does a direct
+`mount(App, { target: document.getElementById('app') })`. SvelteKit removed.
+
+**Bug 3: Svelte 5 `mount()` thought it was server-side.** After ripping out
+SvelteKit, the plain Svelte build threw:
+```
+Svelte error: lifecycle_function_unavailable
+`mount(...)` is not available on the server
+```
+Vite was resolving the Node/SSR conditional exports of Svelte 5. Fixed in
+`vite.config.ts` with:
+```ts
+svelte({ compilerOptions: { generate: 'client' } }),
+resolve: { conditions: ['browser'] }
+```
+
+**Bug 4: Tauri 2 ACL blocked event.listen.** With Svelte mounting and Tauri
+commands working, the UI hit `Command plugin:event|listen not allowed by ACL`.
+Tauri 2 requires explicit capability declarations. Fixed by adding
+`apps/ccdash-ui/capabilities/default.json` granting `core:event:allow-listen`,
+`core:event:allow-emit`, `core:webview:allow-create-webview-window`, etc.
+
+**End-of-smoke state:** UI loads, mounts, connects to daemon, calls
+`project.list`/`session.list`/`ports.list` successfully, no JS errors. Verified
+via `~/.ccdash/ui.log`:
+```
+INFO ccdash_ui_frontend: App.onMount fired
+INFO ccdash_ui_frontend: tauri.connect() returned
+INFO ccdash_ui_frontend: refreshTopLevel done
+```
+
+**Diagnostics added:**
+- `commands::log_from_frontend` — Tauri command for the frontend to write to
+  the Rust tracing log. Stays in the v0.1.0 codebase because it's also useful
+  for users reporting bugs (just `cat ~/.ccdash/ui.log`).
+- `main.rs` now writes tracing logs to `~/.ccdash/ui.log` instead of stderr
+  (stderr is invisible for GUI apps launched via `open`).
+- `App.svelte` registers `window.error` + `unhandledrejection` listeners that
+  forward errors to the same log.
+
+**Still NOT visually verified:** I never saw the UI's window rendered. The
+underlying logic works (daemon RPC, JS lifecycle, store hydration) but I can't
+confirm visual layout, terminal rendering, or multi-window UX from CLI. The
+user must run this manually to verify the visual layer.
+
+**Tag:** `v0.1.0-smoke-fixed` will be applied after this commit.
+
+
 
 
 

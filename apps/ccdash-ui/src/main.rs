@@ -11,11 +11,30 @@ mod windows;
 use tracing_subscriber::EnvFilter;
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    // Log to ~/.ccdash/ui.log so the GUI app's logs are inspectable even when
+    // launched via `open` (where stdout/stderr are inaccessible).
+    let log_dir = ccdash_core::paths::data_dir();
+    let _ = std::fs::create_dir_all(&log_dir);
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("ui.log"))
+        .ok();
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    match log_file {
+        Some(f) => {
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_writer(std::sync::Mutex::new(f))
+                .with_ansi(false)
+                .init();
+        }
+        None => {
+            tracing_subscriber::fmt().with_env_filter(filter).init();
+        }
+    }
+    tracing::info!("ccdash-ui starting");
 
     tauri::Builder::default()
         .manage(client_state::ClientState::new())
@@ -40,6 +59,7 @@ fn main() {
             commands::open_new_window,
             commands::list_windows,
             commands::publish_window_state,
+            commands::log_from_frontend,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

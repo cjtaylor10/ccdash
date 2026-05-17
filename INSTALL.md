@@ -50,13 +50,24 @@ brew uninstall ccdash
 ## Build from source
 
 ```bash
+# Prereqs: rust, node, pnpm, tmux, cargo install tauri-cli (if missing)
 git clone https://github.com/cjtaylor/ccdash.git
 cd ccdash
+
+# Build all binaries + Tauri .app, then ad-hoc sign the .app:
 ./packaging/scripts/release.sh
+
 # Binaries land in target/release/.
+# The Tauri app bundle is at target/release/bundle/macos/ccdash.app (macOS).
+
 # Run the service install script manually (replace REPO_ROOT with the repo path):
 ./packaging/scripts/install-service.sh REPO_ROOT
 ```
+
+The release script automatically runs `codesign --force --deep --sign -` on
+`ccdash.app` so the unsigned WebKit subprocesses aren't over-sandboxed by
+macOS. Without ad-hoc signing, the GUI launches but the webview never
+initializes (sandbox error 159).
 
 ## Configuration
 

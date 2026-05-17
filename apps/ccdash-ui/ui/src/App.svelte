@@ -1,8 +1,8 @@
 <script lang="ts">
-  import '$lib/theme.css';
   import { onMount } from 'svelte';
   import { writable } from 'svelte/store';
   import { listen } from '@tauri-apps/api/event';
+  import { invoke } from '@tauri-apps/api/core';
   import { tauri, windows as windowsApi } from '$lib/tauri';
   import {
     activeTab,
@@ -29,6 +29,12 @@
   import Terminal from '$lib/components/Terminal.svelte';
 
   const otherWindowList = writable<string[]>([]);
+
+  async function log(msg: string) {
+    try {
+      await invoke('log_from_frontend', { level: 'info', message: msg });
+    } catch {}
+  }
 
   async function refreshTopLevel() {
     try {
@@ -72,11 +78,16 @@
   }
 
   onMount(async () => {
+    await log('App.onMount fired');
     try {
+      await log('calling tauri.connect()');
       await tauri.connect();
+      await log('tauri.connect() returned');
       connected.set(true);
       await refreshTopLevel();
+      await log('refreshTopLevel done');
     } catch (e) {
+      await log(`connect/refresh failed: ${String(e)}`);
       connectError.set(String(e));
     }
 

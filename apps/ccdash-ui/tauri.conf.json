@@ -4,9 +4,6 @@
   "version": "0.1.0",
   "identifier": "com.ccdash.app",
   "build": {
-    "beforeDevCommand": "pnpm --filter ccdash-ui-frontend dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --filter ccdash-ui-frontend build",
     "frontendDist": "ui/build"
   },
   "app": {

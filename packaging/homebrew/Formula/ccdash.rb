@@ -14,20 +14,42 @@ class Ccdash < Formula
   depends_on "pnpm" => :build
   depends_on "tmux"
 
-  def install
-    system "cargo", "build", "--release",
-           "-p", "ccdash-daemon",
-           "-p", "ccdash-cli",
-           "-p", "ccdash-ui"
+  # Tauri 2 CLI is installed as a Rust binary; the formula installs it locally
+  # at build time via `cargo install tauri-cli` if it isn't already on PATH.
 
+  def install
+    # Build the SvelteKit frontend first; Tauri bundles it during build.
     cd "apps/ccdash-ui/ui" do
       system "pnpm", "install", "--frozen-lockfile"
       system "pnpm", "run", "build"
     end
 
+    system "cargo", "build", "--release",
+           "-p", "ccdash-daemon",
+           "-p", "ccdash-cli"
+
+    # Ensure tauri-cli is available (it's a cargo subcommand binary).
+    unless quiet_system "cargo", "tauri", "--version"
+      system "cargo", "install", "--locked", "tauri-cli", "--version", "^2"
+    end
+
+    # Build the Tauri bundle so we install ccdash.app rather than a raw binary.
+    system "cargo", "tauri", "build", "--bundles", "app"
+
+    # Ad-hoc sign the .app so macOS doesn't over-sandbox the unsigned WebKit
+    # subprocesses (sandbox error 159: "Connection init failed at lookup").
+    if OS.mac?
+      system "codesign", "--force", "--deep", "--sign", "-",
+             "target/release/bundle/macos/ccdash.app"
+      prefix.install "target/release/bundle/macos/ccdash.app"
+      bin.write_exec_script prefix/"ccdash.app/Contents/MacOS/ccdash-ui"
+      mv bin/"ccdash-ui", bin/"ccdash-ui-launch" if File.exist?(bin/"ccdash-ui")
+    else
+      bin.install "target/release/ccdash-ui"
+    end
+
     bin.install "target/release/ccdash"
     bin.install "target/release/ccdash-daemon"
-    bin.install "target/release/ccdash-ui"
 
     pkgshare.install "packaging/launchd/com.ccdash.daemon.plist"
     pkgshare.install "packaging/systemd/ccdash-daemon.service"
