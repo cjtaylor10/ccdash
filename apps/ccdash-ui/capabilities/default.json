@@ -14,6 +14,7 @@
     "core:window:allow-create",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "shell:allow-open"
   ]
 }

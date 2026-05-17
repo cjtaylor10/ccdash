@@ -8,6 +8,7 @@
     activeTab,
     connectError,
     connected,
+    detectedUrls,
     mirrorTarget,
     nextRetryAt,
     plans,
@@ -36,6 +37,7 @@
   import Terminal from '$lib/components/Terminal.svelte';
   import LaunchDialog from '$lib/components/LaunchDialog.svelte';
   import WelcomeModal from '$lib/components/WelcomeModal.svelte';
+  import BrowserView from '$lib/components/BrowserView.svelte';
 
   const otherWindowList = writable<string[]>([]);
 
@@ -59,6 +61,17 @@
       sessions.set(ss);
       const ports_ = await tauri.portsList();
       ports.set(ports_);
+      // Feed detected URLs: every running TCP listener on a loopback-like
+      // host becomes http://localhost:PORT. Terminal output adds more.
+      if (ports_.running.length > 0) {
+        detectedUrls.update((s) => {
+          const next = new Set(s);
+          for (const p of ports_.running) {
+            next.add(`http://localhost:${p.port}`);
+          }
+          return next;
+        });
+      }
     } catch (e) {
       connectError.set(String(e));
     }
@@ -140,7 +153,7 @@
     };
   });
 
-  function setTab(t: 'sessions' | 'ports' | 'plans') {
+  function setTab(t: 'sessions' | 'ports' | 'plans' | 'browser') {
     activeTab.set(t);
   }
 
@@ -178,6 +191,12 @@
         <button class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')}>Sessions</button>
         <button class:active={$activeTab === 'ports'} on:click={() => setTab('ports')}>Ports</button>
         <button class:active={$activeTab === 'plans'} on:click={() => setTab('plans')}>Plans</button>
+        <button class:active={$activeTab === 'browser'} on:click={() => setTab('browser')}>
+          Browser
+          {#if $detectedUrls.size > 0 && $activeTab !== 'browser'}
+            <span class="badge" aria-label="{$detectedUrls.size} URLs detected"></span>
+          {/if}
+        </button>
       </div>
       <div class="actions">
         <button class="primary" on:click={() => (launchOpen = true)}>Launch session</button>
@@ -200,8 +219,10 @@
         <SessionsView />
       {:else if $activeTab === 'ports'}
         <PortsView />
-      {:else}
+      {:else if $activeTab === 'plans'}
         <PlansView />
+      {:else}
+        <BrowserView />
       {/if}
     </section>
     {#if $terminalPane}
@@ -270,8 +291,17 @@
     background: var(--bg-elev);
   }
   .tabs { display: flex; gap: 4px; }
-  .tabs button { border-radius: 4px; }
+  .tabs button { border-radius: 4px; position: relative; }
   .tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+  .tabs .badge {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-left: 4px;
+    vertical-align: middle;
+  }
   .actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
   .actions .primary {
     background: var(--accent);

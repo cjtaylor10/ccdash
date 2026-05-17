@@ -13,7 +13,11 @@ export const ports = writable<{ running: PortBinding[]; declared: DeclaredPort[]
 });
 export const plans = writable<Plan[]>([]);
 
-export const activeTab = writable<'sessions' | 'ports' | 'plans'>('sessions');
+export const activeTab = writable<'sessions' | 'ports' | 'plans' | 'browser'>('sessions');
+
+/** Loopback URLs detected from terminal output + listening ports.
+ *  BrowserView displays these as one-click entries. */
+export const detectedUrls = writable<Set<string>>(new Set());
 
 export type TerminalPaneState = {
   command: string[];

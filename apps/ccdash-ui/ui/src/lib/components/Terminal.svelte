@@ -5,7 +5,11 @@
   import { listen } from '@tauri-apps/api/event';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { terminal } from '$lib/tauri';
+  import { detectedUrls } from '$lib/stores';
+  import { extractLocalUrls } from '$lib/urlDetect';
   import '@xterm/xterm/css/xterm.css';
+
+  const decoder = new TextDecoder();
 
   export let command: string[];
 
@@ -35,6 +39,16 @@
     unlistenOutput = await listen<number[]>(`terminal-output::${ptyId}`, (e) => {
       const bytes = new Uint8Array(e.payload);
       xterm!.write(bytes);
+      // Scan for loopback URLs and surface them to the Browser tab.
+      const text = decoder.decode(bytes, { stream: true });
+      const urls = extractLocalUrls(text);
+      if (urls.length > 0) {
+        detectedUrls.update((s) => {
+          const next = new Set(s);
+          for (const u of urls) next.add(u);
+          return next;
+        });
+      }
     });
     unlistenEof = await listen(`terminal-eof::${ptyId}`, () => {
       xterm!.write('\r\n\x1b[31m[process exited]\x1b[0m\r\n');

@@ -1,6 +1,6 @@
 {
   "name": "ccdash-ui-frontend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-shell": "^2",
     "@xterm/xterm": "^5.5",
     "@xterm/addon-fit": "^0.10"
   },

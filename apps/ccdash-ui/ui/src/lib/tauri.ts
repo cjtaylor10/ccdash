@@ -147,6 +147,14 @@ export const daemonApi = {
     invoke<{ discovered: DiscoveredRepo[] }>('scan_paths', { roots }),
 };
 
+// === Phase 9: browser preview helpers ===
+
+/** Open `url` in the system's default browser via tauri-plugin-shell. */
+export async function openExternal(url: string): Promise<void> {
+  const { open } = await import('@tauri-apps/plugin-shell');
+  await open(url);
+}
+
 export interface LaunchOpts {
   projectId: string;
   worktree?: string;

@@ -39,6 +39,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Moved(_) = event {
                 window_clamp::clamp_window_position(window);
