@@ -3,6 +3,7 @@
 mod broadcast;
 mod config;
 mod projects;
+mod rpc;
 mod sessions;
 mod state;
 mod tmux;
