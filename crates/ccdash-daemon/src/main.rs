@@ -2,6 +2,7 @@
 
 mod broadcast;
 mod config;
+mod projects;
 
 use clap::Parser;
 
