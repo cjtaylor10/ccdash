@@ -15,8 +15,33 @@ use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+/// launchd / systemd give us a minimal PATH that may not include the
+/// Homebrew bin dirs where `tmux` + `lsof` live. Augment PATH defensively
+/// so the daemon can spawn its subprocesses regardless of how it was started.
+fn augment_path() {
+    const NEEDED: &[&str] = &[
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ];
+    let existing = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<&str> = existing.split(':').collect();
+    for need in NEEDED {
+        if !parts.iter().any(|p| p == need) {
+            parts.push(need);
+        }
+    }
+    std::env::set_var("PATH", parts.join(":"));
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    augment_path();
     let cfg = config::Config::parse();
 
     tracing_subscriber::fmt()
