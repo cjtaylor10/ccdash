@@ -4,6 +4,7 @@
 
 mod client_state;
 mod commands;
+mod event_bridge;
 
 use tracing_subscriber::EnvFilter;
 
@@ -16,6 +17,13 @@ fn main() {
 
     tauri::Builder::default()
         .manage(client_state::ClientState::new())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                event_bridge::run(handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::connect_and_handshake,
             commands::project_list,
