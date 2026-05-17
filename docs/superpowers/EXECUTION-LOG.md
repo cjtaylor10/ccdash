@@ -731,4 +731,89 @@ workstation would be the next confirmation point.
 
 **Tags:** `phase-12-done`, `v0.8.0`.
 
+## 2026-05-17 — Phase 13 (Final polish) — Complete
+
+**Result:** ccdash v1.0.0 shipped — feature-complete personal dashboard.
+
+**Documentation shipped:**
+- `README.md` — full rewrite. Pitch + feature list + comparison table
+  (vs tmuxinator/iTerm tabs/Notion-as-tracker) + architecture diagram
+  + status. Includes the v0.1.x screenshot with a disclaimer that
+  v1.0 has added Browser tab / command palette / theme toggle /
+  drag-reorder / new icon.
+- `docs/USAGE.md` — every CLI subcommand + every UI feature
+  walkthrough. Multi-window, mirror mode, keybinds, daemon service
+  management on macOS and Linux, config file locations, reconnect
+  behavior.
+- `docs/ARCHITECTURE.md` — contributor's tour. Crate map, daemon
+  module map, complete RPC surface table, event bus list, Tauri
+  backend + Svelte frontend file maps, data flow examples (launch /
+  port conflict / mirror), testing strategy, "adding a new RPC
+  method" runbook.
+- `LICENSE` — MIT (was referenced from README but missing from repo).
+
+**Repo housekeeping:**
+- GitHub repo topics: `claude-code`, `tmux`, `tauri`, `svelte`,
+  `rust`, `desktop-app`, `dashboard`, `developer-tools`.
+- GitHub repo description set.
+
+**Test flake fixed:** during v1.0.0 ship, `paths::tests::data_dir_honors_ccdash_home`
+intermittently failed due to test parallelism on a process-global env
+var. Guarded the three env-var tests in `paths.rs` with a process-local
+`static Mutex` so they serialize. Verified by running the suite twice
+in a row, both green.
+
+**Plan deviations:**
+
+1. **No GIF demo.** The plan called for an asciinema or
+   ffmpeg-screencapture-loop GIF. Skipped because (a) generating a
+   meaningful demo requires real Claude sessions running with output,
+   (b) capturing a GIF of the Tauri webview from outside requires user
+   click flow that autonomous mode can't drive, and (c) the v0.1.x
+   screenshot conveys the dashboard concept clearly enough. User can
+   add a GIF whenever ready.
+
+2. **No "announce" preparation.** Per GOAL.md: "Don't post anywhere
+   — just make the repo presentable." Repo is presentable; no
+   announcement copy written.
+
+3. **README screenshot is v0.1.x with disclaimer.** Capturing a fresh
+   screenshot of v1.0 with all the new tabs lit up requires the
+   running UI + driving clicks. Cleanest path was to ship with the
+   older screenshot + a clear note about what's new. User can replace
+   it whenever convenient.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 85 passed / 0 failed / 1 ignored (stable
+across two consecutive runs after the env-var mutex fix),
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` → `packaging/dist/ccdash-1.0.0.tar.gz`,
+formula sha256 = `bdb34a9cf4db294f056798265146d5a13aa4fa1e66e52b7b0abf390760c8d3c4`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `1.0.0`,
+`ccdash --version` reports `ccdash 1.0.0`, `ccdash status` reports
+daemon ok with 4 projects.
+
+**Tags:** `phase-13-done`, `v1.0.0`.
+
+---
+
+## v1.0.0 — Shipped
+
+Eight implementation phases over the autonomous continuation run:
+
+- **Phase 6** v0.2.0 — UI parity with CLI (Launch / Add / Remove / Kill buttons + dialog).
+- **Phase 7** v0.3.0 — Verify + polish (error.data plumbing, full conflict remediation, window clamp, reconnect UX).
+- **Phase 8** v0.4.0 — First-run + onboarding (welcome modal, scanner, empty states).
+- **Phase 9** v0.5.0 — Embedded browser preview (4th tab, iframe + URL detection).
+- **Phase 10** v0.6.0 — Polish + niceties (shortcuts, palette, drag-reorder, markdown, theme, icon, health dot).
+- **Phase 11** v0.7.0 — Signing + auto-update — DEFERRED (needs Apple Developer cert).
+- **Phase 12** v0.8.0 — Linux verification (Dockerfile, lsof dep).
+- **Phase 13** v1.0.0 — Final polish (docs, README, license, topics).
+
+GitHub: https://github.com/cjtaylor10/ccdash
+Brew tap: https://github.com/cjtaylor10/homebrew-ccdash-tap
+85 tests pass on macOS + Ubuntu 22.04. Source-build ad-hoc-signed on
+macOS via the release.sh script.
+
 
