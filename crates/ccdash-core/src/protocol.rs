@@ -228,6 +228,29 @@ pub struct PlanGetResult {
     pub plans: Vec<Plan>,
 }
 
+// === First-run / onboarding ===
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct FirstRunStatusResult {
+    pub pending: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ScanPathsParams {
+    pub roots: Vec<std::path::PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DiscoveredRepo {
+    pub path: std::path::PathBuf,
+    pub suggested_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ScanPathsResult {
+    pub discovered: Vec<DiscoveredRepo>,
+}
+
 /// Protocol version this build of `ccdash-core` understands.
 pub const PROTOCOL_VERSION: u32 = 1;
 

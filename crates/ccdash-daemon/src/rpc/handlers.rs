@@ -231,6 +231,44 @@ pub async fn handle_session_kill(
     Ok(())
 }
 
+pub async fn handle_first_run_status(
+    state: &AppState,
+) -> ccdash_core::protocol::FirstRunStatusResult {
+    ccdash_core::protocol::FirstRunStatusResult {
+        pending: state
+            .first_run_pending
+            .load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+pub async fn handle_first_run_complete(state: &AppState) {
+    state
+        .first_run_pending
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub async fn handle_scan_paths(
+    params: ccdash_core::protocol::ScanPathsParams,
+    _state: &AppState,
+) -> ccdash_core::protocol::ScanPathsResult {
+    let found = crate::projects::scanner::scan(&params.roots).await;
+    let discovered = found
+        .into_iter()
+        .map(|path| {
+            let suggested_name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("repo")
+                .to_string();
+            ccdash_core::protocol::DiscoveredRepo {
+                path,
+                suggested_name,
+            }
+        })
+        .collect();
+    ccdash_core::protocol::ScanPathsResult { discovered }
+}
+
 pub async fn handle_plans_get(
     params: ccdash_core::protocol::PlanGetParams,
     state: &AppState,

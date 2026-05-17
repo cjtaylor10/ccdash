@@ -158,6 +158,31 @@ pub async fn publish_window_state(
         .map_err(|e| e.to_string())
 }
 
+// === First-run / onboarding ===
+
+#[tauri::command]
+pub async fn first_run_status(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
+    call_method(&state, "daemon.first_run_status", serde_json::json!({})).await
+}
+
+#[tauri::command]
+pub async fn first_run_complete(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
+    call_method(&state, "daemon.first_run_complete", serde_json::json!({})).await
+}
+
+#[tauri::command]
+pub async fn scan_paths(
+    state: State<'_, ClientState>,
+    roots: Vec<String>,
+) -> Result<Value, UiRpcError> {
+    call_method(
+        &state,
+        "daemon.scan_paths",
+        serde_json::json!({ "roots": roots }),
+    )
+    .await
+}
+
 // === Project management ===
 
 #[tauri::command]

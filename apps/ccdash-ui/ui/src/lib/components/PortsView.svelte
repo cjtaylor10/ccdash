@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ports, selectedProjectId } from '$lib/stores';
+  import { ports, projects, selectedProjectId } from '$lib/stores';
+  import EmptyState from './EmptyState.svelte';
 
   $: filteredRunning = $selectedProjectId
     ? $ports.running.filter((p) => p.project_id === $selectedProjectId)
@@ -9,6 +10,9 @@
     : $ports.declared;
 </script>
 
+{#if $projects.length === 0}
+  <EmptyState title="No ports to show" />
+{:else}
 <div>
   <h3>Running listeners</h3>
   <table>
@@ -43,6 +47,7 @@
     </tbody>
   </table>
 </div>
+{/if}
 
 <style>
   h3 { margin: 16px 12px 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--fg-dim); }

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { sessions, terminalPane } from '$lib/stores';
+  import { projects, sessions, terminalPane } from '$lib/stores';
   import { sessionsApi, tauri } from '$lib/tauri';
+  import EmptyState from './EmptyState.svelte';
 
   let busy: Record<string, boolean> = {};
   let errMsg: string | null = null;
@@ -34,6 +35,9 @@
   {#if errMsg}
     <div class="err">{errMsg}</div>
   {/if}
+  {#if $projects.length === 0}
+    <EmptyState title="No sessions yet" />
+  {:else}
   <table>
     <thead>
       <tr><th>tmux id</th><th>name</th><th>pid</th><th>cwd</th><th>state</th><th></th></tr>
@@ -58,6 +62,7 @@
       {/each}
     </tbody>
   </table>
+  {/if}
 </div>
 
 <style>

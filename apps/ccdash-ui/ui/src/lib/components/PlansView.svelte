@@ -1,7 +1,11 @@
 <script lang="ts">
-  import { plans } from '$lib/stores';
+  import { plans, projects } from '$lib/stores';
+  import EmptyState from './EmptyState.svelte';
 </script>
 
+{#if $projects.length === 0}
+  <EmptyState title="No plans to show" />
+{:else}
 <div>
   {#each $plans as p (p.path)}
     <section>
@@ -30,6 +34,7 @@
     <div class="empty">(no plans found under docs/superpowers/&#123;specs,plans&#125;/)</div>
   {/each}
 </div>
+{/if}
 
 <style>
   section { padding: 16px 20px; border-bottom: 1px solid var(--border); }

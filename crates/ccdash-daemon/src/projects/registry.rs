@@ -24,14 +24,17 @@ struct ProjectRow {
 pub struct Registry {
     file: PathBuf,
     inner: RwLock<Vec<Project>>,
+    /// True iff projects.toml did NOT exist at `load()` time. Used to seed
+    /// the first-run flag.
+    was_new_on_disk: bool,
 }
 
 impl Registry {
     /// Load the registry from `file`, creating an empty one if absent.
     pub async fn load(file: PathBuf) -> Result<Self> {
-        let projects = match fs::read_to_string(&file).await {
-            Ok(s) => Self::parse(&s)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        let (projects, was_new) = match fs::read_to_string(&file).await {
+            Ok(s) => (Self::parse(&s)?, false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
             Err(e) => {
                 return Err(anyhow::Error::new(e).context(format!("reading {}", file.display())))
             }
@@ -39,7 +42,13 @@ impl Registry {
         Ok(Self {
             file,
             inner: RwLock::new(projects),
+            was_new_on_disk: was_new,
         })
+    }
+
+    /// True iff the registry was bootstrapped with no on-disk state.
+    pub fn was_new_on_disk(&self) -> bool {
+        self.was_new_on_disk
     }
 
     fn parse(s: &str) -> Result<Vec<Project>> {

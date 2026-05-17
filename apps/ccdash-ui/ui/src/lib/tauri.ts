@@ -133,6 +133,20 @@ export const projectsApi = {
   remove: (id: string) => invoke<null>('project_remove', { id }),
 };
 
+// === Phase 8: first-run / onboarding ===
+
+export interface DiscoveredRepo {
+  path: string;
+  suggested_name: string;
+}
+
+export const daemonApi = {
+  firstRunStatus: () => invoke<{ pending: boolean }>('first_run_status'),
+  firstRunComplete: () => invoke<unknown>('first_run_complete'),
+  scanPaths: (roots: string[]) =>
+    invoke<{ discovered: DiscoveredRepo[] }>('scan_paths', { roots }),
+};
+
 export interface LaunchOpts {
   projectId: string;
   worktree?: string;

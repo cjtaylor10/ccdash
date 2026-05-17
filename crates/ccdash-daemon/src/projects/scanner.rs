@@ -1,10 +1,7 @@
 //! Recursively scans configured root directories for git repos.
 //! Limits depth to avoid descending into `node_modules`/build outputs.
 //!
-//! Phase 1 includes the implementation but no consumer; Phase 2 wires it
-//! into the RPC layer for the auto-detection / scan-with-confirm flow.
-
-#![allow(dead_code)]
+//! Consumed by `daemon.scan_paths` for the welcome flow.
 
 use std::path::{Path, PathBuf};
 use tokio::fs;

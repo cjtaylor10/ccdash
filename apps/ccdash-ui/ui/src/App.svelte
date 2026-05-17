@@ -3,7 +3,7 @@
   import { writable } from 'svelte/store';
   import { listen } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
-  import { tauri, windows as windowsApi } from '$lib/tauri';
+  import { daemonApi, tauri, windows as windowsApi } from '$lib/tauri';
   import {
     activeTab,
     connectError,
@@ -35,10 +35,12 @@
   import PlansView from '$lib/components/PlansView.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
   import LaunchDialog from '$lib/components/LaunchDialog.svelte';
+  import WelcomeModal from '$lib/components/WelcomeModal.svelte';
 
   const otherWindowList = writable<string[]>([]);
 
   let launchOpen = false;
+  let welcomeOpen = false;
 
   async function log(msg: string) {
     try {
@@ -96,6 +98,16 @@
       connected.set(true);
       await refreshTopLevel();
       await log('refreshTopLevel done');
+      // First-run check: only on the main window (label "main"); other
+      // windows skip the welcome flow to avoid duplicate prompts.
+      if (windowsApi.currentLabel() === 'main') {
+        try {
+          const { pending } = await daemonApi.firstRunStatus();
+          if (pending) welcomeOpen = true;
+        } catch (e) {
+          await log(`first_run_status failed: ${String(e)}`);
+        }
+      }
     } catch (e) {
       await log(`connect/refresh failed: ${String(e)}`);
       connectError.set(String(e));
@@ -209,6 +221,7 @@
 </div>
 
 <LaunchDialog bind:open={launchOpen} />
+<WelcomeModal bind:open={welcomeOpen} />
 
 <style>
   .root { display: flex; height: 100vh; }
