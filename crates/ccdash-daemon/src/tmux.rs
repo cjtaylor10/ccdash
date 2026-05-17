@@ -13,6 +13,9 @@ pub struct PaneRow {
     pub pane_pid: i32,
     pub pane_cmd: String,
     pub cwd: String,
+    /// True iff the pane's child process has exited and remain-on-exit is
+    /// keeping the pane alive. From tmux's `#{pane_dead}` format.
+    pub pane_dead: bool,
 }
 
 /// True iff `tmux` is on PATH and a server is reachable. Tries `tmux -V` first
@@ -29,7 +32,7 @@ pub async fn check_installed() -> bool {
 
 /// List all panes across all sessions, returning a tuple per pane.
 pub async fn list_panes() -> Result<Vec<PaneRow>> {
-    let fmt = "#{session_id}\t#{session_name}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}";
+    let fmt = "#{session_id}\t#{session_name}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_dead}";
     let output = Command::new("tmux")
         .args(["list-panes", "-a", "-F", fmt])
         .output()
@@ -51,18 +54,21 @@ fn parse_panes(s: &str) -> Vec<PaneRow> {
     s.lines()
         .filter(|l| !l.is_empty())
         .filter_map(|line| {
-            let mut it = line.splitn(5, '\t');
+            let mut it = line.splitn(6, '\t');
             let session_id = it.next()?.to_string();
             let session_name = it.next()?.to_string();
             let pane_pid: i32 = it.next()?.parse().ok()?;
             let pane_cmd = it.next()?.to_string();
             let cwd = it.next()?.to_string();
+            // pane_dead may be missing on older tmux builds; default to false.
+            let pane_dead = it.next().is_some_and(|s| s == "1");
             Some(PaneRow {
                 session_id,
                 session_name,
                 pane_pid,
                 pane_cmd,
                 cwd,
+                pane_dead,
             })
         })
         .collect()
@@ -163,18 +169,29 @@ mod tests {
     #[test]
     fn parse_panes_two_rows() {
         let input =
-            "$0\tccdash:a:main\t1234\tclaude\t/home/u/a\n$1\tccdash:b:main\t5678\tzsh\t/home/u/b\n";
+            "$0\tccdash:a:main\t1234\tclaude\t/home/u/a\t0\n$1\tccdash:b:main\t5678\tzsh\t/home/u/b\t1\n";
         let parsed = parse_panes(input);
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].session_id, "$0");
         assert_eq!(parsed[0].pane_pid, 1234);
         assert_eq!(parsed[0].pane_cmd, "claude");
+        assert!(!parsed[0].pane_dead);
         assert_eq!(parsed[1].cwd, "/home/u/b");
+        assert!(parsed[1].pane_dead);
+    }
+
+    #[test]
+    fn parse_panes_legacy_rows_without_pane_dead() {
+        // Older tmux output (no pane_dead field) must still parse cleanly.
+        let input = "$0\tccdash:a:main\t1234\tclaude\t/home/u/a\n";
+        let parsed = parse_panes(input);
+        assert_eq!(parsed.len(), 1);
+        assert!(!parsed[0].pane_dead);
     }
 
     #[test]
     fn parse_panes_skips_malformed() {
-        let input = "garbage line\n$0\tn\t1\tc\t/\n";
+        let input = "garbage line\n$0\tn\t1\tc\t/\t0\n";
         let parsed = parse_panes(input);
         assert_eq!(parsed.len(), 1);
     }

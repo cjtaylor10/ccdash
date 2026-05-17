@@ -142,13 +142,13 @@ impl Manager {
 
 fn build_session(p: &PaneRow, meta: &BTreeMap<String, SessionMeta>, now: i64) -> Session {
     let m = meta.get(&p.session_id);
-    // State: Running if claude is the foreground command; Exited if we have
-    // metadata for this session but the foreground command is something else
-    // (typically the shell after claude exited under remain-on-exit).
-    let state = if p.pane_cmd == "claude" {
-        SessionState::Running
-    } else {
+    // State: Exited iff tmux reports `pane_dead=1` — the process died and
+    // remain-on-exit is holding the pane open. Otherwise the pane is alive
+    // (running claude, a test command, a shell, anything) → Running.
+    let state = if p.pane_dead {
         SessionState::Exited
+    } else {
+        SessionState::Running
     };
     Session {
         tmux_session_id: p.session_id.clone(),
@@ -207,6 +207,7 @@ mod tests {
             pane_pid: 42,
             pane_cmd: "claude".into(),
             cwd: "/tmp".into(),
+            pane_dead: false,
         };
         let mut meta = BTreeMap::new();
         meta.insert(
@@ -230,6 +231,7 @@ mod tests {
             pane_pid: 1,
             pane_cmd: "claude".into(),
             cwd: "/x".into(),
+            pane_dead: false,
         };
         let s = build_session(&pane, &BTreeMap::new(), 7);
         assert_eq!(s.first_seen, 7);
