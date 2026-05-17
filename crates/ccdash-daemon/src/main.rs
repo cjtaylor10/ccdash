@@ -1,5 +1,6 @@
 //! ccdash daemon entry point.
 
+mod broadcast;
 mod config;
 
 use clap::Parser;
