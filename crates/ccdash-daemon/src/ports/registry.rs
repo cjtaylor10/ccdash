@@ -54,7 +54,9 @@ impl Registry {
     }
 
     /// Find currently-listening ports that would conflict with the declared ports
-    /// of the given project.
+    /// of the given project. A port that's already bound by some process cannot
+    /// be re-bound by a new session, so any overlap is a real conflict —
+    /// regardless of which project we previously associated the running port with.
     pub async fn conflicts_for(
         &self,
         project_id: &ccdash_core::domain::ProjectId,
@@ -68,7 +70,7 @@ impl Registry {
             .collect();
         let mut out = Vec::new();
         for r in running {
-            if project_declared.contains(&r.port) && r.project_id.as_ref() != Some(project_id) {
+            if project_declared.contains(&r.port) {
                 out.push((r.port, r));
             }
         }
@@ -119,7 +121,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn conflicts_for_skips_self_owned_running_port() {
+    async fn conflicts_for_reports_overlap_regardless_of_correlation_label() {
+        // Two listeners cannot share a port, so any overlap is a real conflict
+        // even if the running port was previously labeled with the same project_id
+        // (the labeling is heuristic, not authoritative).
         let dir = tempdir().unwrap();
         let projects = Arc::new(ProjectsRegistry::load(dir.path().join("p.toml")).await.unwrap());
         let reg = Registry::new(projects);
@@ -139,6 +144,6 @@ mod tests {
         }];
 
         let c = reg.conflicts_for(&pid).await;
-        assert!(c.is_empty(), "own port should not appear as a conflict");
+        assert_eq!(c.len(), 1, "overlap is always a conflict");
     }
 }
