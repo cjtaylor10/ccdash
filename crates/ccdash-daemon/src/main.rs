@@ -39,9 +39,23 @@ fn augment_path() {
     std::env::set_var("PATH", parts.join(":"));
 }
 
+/// Ensure a UTF-8 locale is set. Without LC_CTYPE/LANG, tmux's `-F` format
+/// output replaces non-printable bytes (including TAB!) with underscores —
+/// which silently breaks our pane parser. launchd strips locale env on
+/// macOS, so this matters in practice. Default to C.UTF-8 if neither is set.
+fn ensure_locale() {
+    let has_locale = std::env::var("LC_ALL").is_ok()
+        || std::env::var("LC_CTYPE").is_ok()
+        || std::env::var("LANG").is_ok();
+    if !has_locale {
+        std::env::set_var("LC_CTYPE", "UTF-8");
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     augment_path();
+    ensure_locale();
     let cfg = config::Config::parse();
 
     tracing_subscriber::fmt()
