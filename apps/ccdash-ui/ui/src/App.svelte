@@ -38,11 +38,15 @@
   import LaunchDialog from '$lib/components/LaunchDialog.svelte';
   import WelcomeModal from '$lib/components/WelcomeModal.svelte';
   import BrowserView from '$lib/components/BrowserView.svelte';
+  import CommandPalette from '$lib/components/CommandPalette.svelte';
+  import { installKeybinds } from '$lib/keybinds';
+  import { theme, watchSystem, type Theme } from '$lib/theme';
 
   const otherWindowList = writable<string[]>([]);
 
   let launchOpen = false;
   let welcomeOpen = false;
+  let paletteOpen = false;
 
   async function log(msg: string) {
     try {
@@ -144,12 +148,19 @@
     await refreshOtherWindows();
     const windowsTimer = window.setInterval(refreshOtherWindows, 5000);
 
+    const uninstallKeybinds = installKeybinds({
+      openCommandPalette: () => (paletteOpen = true),
+      openLaunchDialog: () => (launchOpen = true),
+    });
+    watchSystem();
+
     return () => {
       unlistenDaemon();
       stopPublishing();
       stopMirroring();
       stopReconnectLoop();
       clearInterval(windowsTimer);
+      uninstallKeybinds();
     };
   });
 
@@ -166,6 +177,15 @@
     if (v) startMirroring(v);
     else stopMirroring();
   }
+
+  function onThemeChange(e: Event) {
+    theme.set((e.target as HTMLSelectElement).value as Theme);
+  }
+
+  $: healthColor =
+    $reconnecting ? 'yellow' : $connected ? 'green' : 'red';
+  $: healthTitle =
+    $reconnecting ? 'Reconnecting…' : $connected ? 'Daemon connected' : 'Daemon disconnected';
 </script>
 
 <div class="root">
@@ -207,11 +227,12 @@
           {/each}
         </select>
         <button on:click={() => windowsApi.openNew()}>+ New window</button>
-      </div>
-      <div class="status">
-        {#if !$connected}
-          <span class="error">{$connectError ?? 'connecting...'}</span>
-        {/if}
+        <select class="theme-select" value={$theme} on:change={onThemeChange} title="Theme">
+          <option value="system">Auto</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+        <span class="health health-{healthColor}" title={healthTitle} aria-label={healthTitle}></span>
       </div>
     </header>
     <section class="content">
@@ -243,6 +264,10 @@
 
 <LaunchDialog bind:open={launchOpen} />
 <WelcomeModal bind:open={welcomeOpen} />
+<CommandPalette
+  bind:open={paletteOpen}
+  on:openLaunchDialog={() => (launchOpen = true)}
+/>
 
 <style>
   .root { display: flex; height: 100vh; }
@@ -313,6 +338,20 @@
     font-weight: 600;
   }
   .actions .primary:hover { opacity: 0.9; }
+  .actions .theme-select {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .health {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-left: 4px;
+  }
+  .health-green { background: var(--success); box-shadow: 0 0 4px var(--success); }
+  .health-yellow { background: #f4a83c; box-shadow: 0 0 4px #f4a83c; animation: pulse 1s ease-in-out infinite; }
+  .health-red { background: var(--danger); box-shadow: 0 0 4px var(--danger); }
   .actions select {
     background: var(--bg-elev);
     color: var(--fg);

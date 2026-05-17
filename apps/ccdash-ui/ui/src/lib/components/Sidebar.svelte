@@ -2,6 +2,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { projects, selectedProjectId } from '$lib/stores';
   import { projectsApi, tauri } from '$lib/tauri';
+  import { truncateBranch } from '$lib/format';
 
   let busy = false;
   let errMsg: string | null = null;
@@ -9,6 +10,56 @@
   let menuOpenForId: string | null = null;
   let menuX = 0;
   let menuY = 0;
+
+  let dragId: string | null = null;
+  let dragOverId: string | null = null;
+
+  function onDragStart(e: DragEvent, id: string) {
+    dragId = id;
+    e.dataTransfer?.setData('text/plain', id);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  }
+  function onDragOver(e: DragEvent, id: string) {
+    if (!dragId || dragId === id) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    dragOverId = id;
+  }
+  function onDragLeave(id: string) {
+    if (dragOverId === id) dragOverId = null;
+  }
+  async function onDrop(e: DragEvent, targetId: string) {
+    e.preventDefault();
+    if (!dragId || dragId === targetId) {
+      dragId = null;
+      dragOverId = null;
+      return;
+    }
+    const list = $projects.slice();
+    const from = list.findIndex((p) => p.id === dragId);
+    const to = list.findIndex((p) => p.id === targetId);
+    if (from === -1 || to === -1) {
+      dragId = null;
+      dragOverId = null;
+      return;
+    }
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    projects.set(list);
+    try {
+      await projectsApi.reorder(list.map((p) => p.id));
+    } catch (e) {
+      errMsg = String(e);
+      // Refresh from daemon to reset visual state on failure.
+      try {
+        const { projects: ps } = await tauri.projectList();
+        projects.set(ps);
+      } catch {}
+    } finally {
+      dragId = null;
+      dragOverId = null;
+    }
+  }
 
   function select(id: string) {
     selectedProjectId.set(id);
@@ -74,14 +125,23 @@
   {/if}
   <ul>
     {#each $projects as p (p.id)}
-      <li class:active={$selectedProjectId === p.id}>
+      <li
+        class:active={$selectedProjectId === p.id}
+        class:drag-over={dragOverId === p.id}
+        class:dragging={dragId === p.id}
+        draggable="true"
+        on:dragstart={(e) => onDragStart(e, p.id)}
+        on:dragover={(e) => onDragOver(e, p.id)}
+        on:dragleave={() => onDragLeave(p.id)}
+        on:drop={(e) => onDrop(e, p.id)}
+      >
         <button on:click={() => select(p.id)} on:contextmenu={(e) => openMenu(e, p.id)}>
           <span class="name">{p.name}</span>
           <span class="path">{p.path}</span>
           {#if p.worktrees.length > 1}
             <ul class="worktrees">
               {#each p.worktrees as wt (wt.path)}
-                <li><code>{wt.branch}</code>{wt.is_primary ? ' (main)' : ''}</li>
+                <li><code title={wt.branch}>{truncateBranch(wt.branch)}</code>{wt.is_primary ? ' (main)' : ''}</li>
               {/each}
             </ul>
           {/if}
@@ -153,6 +213,8 @@
   }
   li.active button { background: var(--accent-bg); border-left: 3px solid var(--accent); padding-left: 13px; }
   li button:hover { background: var(--accent-bg); }
+  li.dragging { opacity: 0.4; }
+  li.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
   .name { font-weight: 600; }
   .path { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
   .worktrees { margin: 6px 0 0; padding-left: 12px; }

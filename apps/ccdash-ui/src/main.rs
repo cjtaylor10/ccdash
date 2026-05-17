@@ -65,6 +65,7 @@ fn main() {
             commands::scan_paths,
             commands::project_add,
             commands::project_remove,
+            commands::project_reorder,
             commands::session_launch,
             commands::session_kill,
             commands::terminal_open,

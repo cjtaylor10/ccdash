@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "ccdash-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "ccdash-core",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "ccdash-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "rand",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "ccdash-daemon"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "ccdash-core",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "ccdash-ui"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "ccdash-core",

@@ -77,6 +77,17 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
                 Err(e) => Response::err(id, e),
             }
         }
+        "project.reorder" => {
+            let params: ccdash_core::protocol::ProjectReorderParams =
+                match serde_json::from_value(req.params) {
+                    Ok(p) => p,
+                    Err(e) => return Response::err(id, err(E_INVALID_PARAMS, e.to_string())),
+                };
+            match handlers::handle_project_reorder(params, state).await {
+                Ok(()) => Response::ok(id, json!({"ok": true})),
+                Err(e) => Response::err(id, e),
+            }
+        }
         "project.remove" => {
             let params: ProjectRemoveParams = match serde_json::from_value(req.params) {
                 Ok(p) => p,

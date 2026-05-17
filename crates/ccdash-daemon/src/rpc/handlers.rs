@@ -69,6 +69,23 @@ pub async fn handle_project_add(
     Ok(updated)
 }
 
+pub async fn handle_project_reorder(
+    params: ccdash_core::protocol::ProjectReorderParams,
+    state: &AppState,
+) -> Result<(), RpcError> {
+    state
+        .projects
+        .reorder(&params.ids)
+        .await
+        .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+    // Re-broadcast the updated list so clients can refresh.
+    let projects = state.projects.list().await;
+    for p in projects {
+        state.bus.publish(Event::ProjectUpdated { project: p });
+    }
+    Ok(())
+}
+
 pub async fn handle_project_remove(
     params: ProjectRemoveParams,
     state: &AppState,

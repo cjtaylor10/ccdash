@@ -5,6 +5,19 @@
 
   let busy: Record<string, boolean> = {};
   let errMsg: string | null = null;
+  let query = '';
+
+  $: showSearch = $sessions.length > 10;
+  $: filtered = query.trim()
+    ? $sessions.filter((s) => {
+        const q = query.toLowerCase();
+        return (
+          s.name.toLowerCase().includes(q)
+          || s.cwd.toLowerCase().includes(q)
+          || s.tmux_session_id.toLowerCase().includes(q)
+        );
+      })
+    : $sessions;
 
   function attach(sessionId: string) {
     terminalPane.set({
@@ -38,12 +51,17 @@
   {#if $projects.length === 0}
     <EmptyState title="No sessions yet" />
   {:else}
+  {#if showSearch}
+    <div class="search">
+      <input type="text" placeholder="Filter sessions (name / cwd / id)…" bind:value={query} />
+    </div>
+  {/if}
   <table>
     <thead>
       <tr><th>tmux id</th><th>name</th><th>pid</th><th>cwd</th><th>state</th><th></th></tr>
     </thead>
     <tbody>
-      {#each $sessions as s (s.tmux_session_id)}
+      {#each filtered as s (s.tmux_session_id)}
         <tr>
           <td><code>{s.tmux_session_id}</code></td>
           <td>{s.name}</td>
@@ -58,7 +76,9 @@
           </td>
         </tr>
       {:else}
-        <tr><td colspan="6" class="empty">(no sessions — click "Launch session" up top)</td></tr>
+        <tr><td colspan="6" class="empty">
+          {query.trim() ? '(no sessions match filter)' : '(no sessions — click "Launch session" up top)'}
+        </td></tr>
       {/each}
     </tbody>
   </table>
@@ -87,5 +107,18 @@
     background: rgba(255, 0, 0, 0.1);
     color: var(--danger);
     font-size: 12px;
+  }
+  .search {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 13px;
   }
 </style>

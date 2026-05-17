@@ -131,6 +131,7 @@ export const projectsApi = {
   add: (path: string, name?: string) =>
     invoke<Project>('project_add', { path, name }),
   remove: (id: string) => invoke<null>('project_remove', { id }),
+  reorder: (ids: string[]) => invoke<unknown>('project_reorder', { ids }),
 };
 
 // === Phase 8: first-run / onboarding ===

@@ -126,6 +126,11 @@ pub struct ProjectRemoveParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ProjectReorderParams {
+    pub ids: Vec<ProjectId>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct SessionListResult {
     pub sessions: Vec<Session>,
 }

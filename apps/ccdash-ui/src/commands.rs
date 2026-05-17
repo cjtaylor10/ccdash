@@ -208,6 +208,14 @@ pub async fn project_remove(
 }
 
 #[tauri::command]
+pub async fn project_reorder(
+    state: State<'_, ClientState>,
+    ids: Vec<String>,
+) -> Result<Value, UiRpcError> {
+    call_method(&state, "project.reorder", serde_json::json!({ "ids": ids })).await
+}
+
+#[tauri::command]
 pub async fn session_launch(
     state: State<'_, ClientState>,
     project_id: String,
