@@ -1,27 +1,49 @@
 <script lang="ts">
   import {
-    activeTerminalSessionId,
     attachedSessions,
+    browserPaneSubtabByPaneId,
     browserStateBySession,
     detectedUrlsBySession,
+    selectedProjectId,
     sessions,
   } from '$lib/stores';
   import { openExternal, screenshot as screenshotApi } from '$lib/tauri';
   import { showToast } from '$lib/toast';
   import { invoke } from '@tauri-apps/api/core';
 
+  export let paneId: string;
+
   let errMsg: string | null = null;
 
-  /** Which session's browser context is showing. Defaults to the currently
-   *  attached terminal — switching terminals switches the browser too,
-   *  preserving each session's own URL + history. The user can also pick
-   *  "All" (null) to see machine-wide URL detection. */
-  let viewSession: string | null = $activeTerminalSessionId;
+  /** Attached sessions that belong to the currently-selected project. When
+   *  no project is selected, fall back to every attached session. */
+  $: inScopeSessions = (() => {
+    const pid = $selectedProjectId;
+    const allSessions = $sessions;
+    return $attachedSessions.filter((t) => {
+      if (pid === null) return true;
+      const sess = allSessions.find((s) => s.tmux_session_id === t.sessionId);
+      return sess?.project_id === pid;
+    });
+  })();
 
-  // Keep the browser context synced to the active terminal — unless the user
-  // explicitly overrode by picking another session from the dropdown.
-  let userOverride = false;
-  $: if (!userOverride) viewSession = $activeTerminalSessionId;
+  /** This pane's selected sub-tab. Reads from the per-pane map; if stale
+   *  (no longer in scope) or unset, falls back to the first in-scope
+   *  session. `null` if no sessions are in scope at all. */
+  $: viewSession = (() => {
+    const stored = $browserPaneSubtabByPaneId.get(paneId);
+    if (stored && inScopeSessions.some((t) => t.sessionId === stored)) return stored;
+    if (inScopeSessions.length > 0) return inScopeSessions[0].sessionId;
+    return null;
+  })();
+
+  function selectSubtab(sessionId: string) {
+    browserPaneSubtabByPaneId.update((m) => {
+      const next = new Map(m);
+      next.set(paneId, sessionId);
+      return next;
+    });
+  }
 
   /** Default per-session browser state shape — created lazily on first use. */
   function defaultState() {
@@ -141,17 +163,6 @@
     if (e.key === 'Enter') go();
   }
 
-  function onContextChange(e: Event) {
-    const v = (e.target as HTMLSelectElement).value;
-    viewSession = v === '__all__' ? null : v;
-    userOverride = true;
-  }
-
-  function followActive() {
-    userOverride = false;
-    viewSession = $activeTerminalSessionId;
-  }
-
   $: contextLabel = (() => {
     if (viewSession === null) return 'All sessions';
     const sess = $sessions.find((s) => s.tmux_session_id === viewSession);
@@ -177,24 +188,26 @@
     <button class="ext" on:click={snapshot} disabled={!current} title="Screenshot preview to clipboard" aria-label="Screenshot preview">⎙</button>
   </div>
 
-  <div class="context-bar">
-    <span class="ctx-label">Browser for:</span>
-    <select class="ctx-select" value={viewSession ?? '__all__'} on:change={onContextChange}>
-      <option value="__all__">All sessions</option>
-      {#each $attachedSessions as t (t.sessionId)}
+  {#if inScopeSessions.length > 0}
+    <div class="subtabs">
+      {#each inScopeSessions as t (t.sessionId)}
         {@const sess = $sessions.find((s) => s.tmux_session_id === t.sessionId)}
-        <option value={t.sessionId}>
-          {sess?.name ?? t.sessionId} ({t.sessionId})
-        </option>
+        <button
+          class="subtab"
+          class:active={t.sessionId === viewSession}
+          on:click={() => selectSubtab(t.sessionId)}
+          title={t.sessionId}
+        >
+          <span class="subtab-name">{sess?.name ?? t.sessionId}</span>
+          <code>{t.sessionId}</code>
+        </button>
       {/each}
-    </select>
-    {#if userOverride && $activeTerminalSessionId && viewSession !== $activeTerminalSessionId}
-      <button class="follow-btn" on:click={followActive} title="Follow the currently-attached session">
-        ↺ follow active
-      </button>
-    {/if}
-    <span class="ctx-name">{contextLabel}</span>
-  </div>
+    </div>
+  {:else}
+    <div class="subtabs subtabs-empty">
+      <span>No attached sessions in this project. Launch one to start browsing.</span>
+    </div>
+  {/if}
 
   {#if errMsg}
     <div class="err">{errMsg}</div>
@@ -288,44 +301,56 @@
     color: var(--state-error);
     font-size: 11.5px;
   }
-  .context-bar {
+  .subtabs {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 10px;
+    gap: 2px;
+    padding: 4px 8px;
     background: var(--bg-elev);
     border-bottom: 1px solid var(--border);
-    font-size: 11px;
-    color: var(--fg-dim);
+    overflow-x: auto;
+    flex-shrink: 0;
   }
-  .ctx-label {
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    font-size: 10px;
-    color: var(--fg-mute);
-  }
-  .ctx-select {
-    background: var(--bg);
-    color: var(--fg);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 2px 6px;
-    font-size: 11px;
-    max-width: 280px;
-  }
-  .follow-btn {
+  .subtab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
     border-radius: var(--r-sm);
-    padding: 2px 8px;
-    font-size: 10.5px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-family: var(--sans);
+    cursor: pointer;
+    flex-shrink: 0;
   }
-  .follow-btn:hover { background: var(--accent-bg); }
-  .ctx-name {
-    margin-left: auto;
+  .subtab:hover {
+    color: var(--fg);
+    border-color: var(--border-strong);
+    background: var(--bg-elev-2);
+  }
+  .subtab.active {
+    background: var(--accent-bg-strong);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .subtab.active code { color: var(--accent); }
+  .subtab code {
     font-family: var(--mono);
     color: var(--fg-mute);
+    font-size: 10.5px;
+  }
+  .subtab-name {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .subtabs-empty {
+    padding: 8px 12px;
+    color: var(--fg-mute);
+    font-size: 11.5px;
+    font-style: italic;
   }
   .main {
     flex: 1;
