@@ -90,7 +90,7 @@
           <th>Project · worktree</th>
           <th>cwd</th>
           <th class="num">pid</th>
-          <th class="num">tmux</th>
+          <th class="num" title="Tmux session ID — stable across renames">Tmux ID</th>
           <th></th>
         </tr>
       </thead>

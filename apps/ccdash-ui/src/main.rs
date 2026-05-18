@@ -11,7 +11,48 @@ mod windows;
 
 use tracing_subscriber::EnvFilter;
 
+/// launchd / macOS LaunchServices give us a minimal PATH that omits the
+/// Homebrew bin dirs where `tmux` lives. The PTY bridge spawns `tmux
+/// attach-session` from this process when the user clicks Attach, so we
+/// must augment PATH defensively before any subprocess spawn.
+fn augment_path() {
+    const NEEDED: &[&str] = &[
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ];
+    let existing = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<&str> = existing.split(':').collect();
+    for need in NEEDED {
+        if !parts.iter().any(|p| p == need) {
+            parts.push(need);
+        }
+    }
+    std::env::set_var("PATH", parts.join(":"));
+}
+
+/// Mirror of the daemon's locale guard: without LC_CTYPE/LANG, tmux's
+/// non-printable handling kicks in and our pane parsers break. The UI
+/// process doesn't currently parse tmux output but we set this defensively
+/// in case the spawned `tmux attach-session` child has any locale-dependent
+/// behavior in its terminal control-sequence handling.
+fn ensure_locale() {
+    let has_locale = std::env::var("LC_ALL").is_ok()
+        || std::env::var("LC_CTYPE").is_ok()
+        || std::env::var("LANG").is_ok();
+    if !has_locale {
+        std::env::set_var("LC_CTYPE", "UTF-8");
+    }
+}
+
 fn main() {
+    augment_path();
+    ensure_locale();
     // Log to ~/.ccdash/ui.log so the GUI app's logs are inspectable even when
     // launched via `open` (where stdout/stderr are inaccessible).
     let log_dir = ccdash_core::paths::data_dir();

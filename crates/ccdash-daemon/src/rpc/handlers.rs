@@ -114,11 +114,20 @@ pub async fn handle_project_remove(
 }
 
 pub async fn handle_session_list(state: &AppState) -> Result<SessionListResult, RpcError> {
-    let (current, _) = state
+    let (current, removed) = state
         .sessions
         .refresh()
         .await
         .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+    // Forget metadata for sessions that no longer exist in tmux. Without
+    // this, sessions.toml grows unbounded — leaking entries for every
+    // launched-then-killed session.
+    for id in &removed {
+        let _ = state.sessions.forget(id).await;
+        state.bus.publish(Event::SessionRemoved {
+            tmux_session_id: id.clone(),
+        });
+    }
     Ok(SessionListResult { sessions: current })
 }
 
