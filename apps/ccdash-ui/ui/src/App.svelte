@@ -20,6 +20,9 @@
     activeTerminalSessionId,
     detectedUrlsBySession,
     terminalCollapsed,
+    sidebarWidth,
+    sidebarCollapsed,
+    terminalPanelHeight,
   } from '$lib/stores';
   import {
     startPublishing,
@@ -41,6 +44,7 @@
   import WelcomeModal from '$lib/components/WelcomeModal.svelte';
   import BrowserView from '$lib/components/BrowserView.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
+  import Splitter from '$lib/components/Splitter.svelte';
   import { installKeybinds } from '$lib/keybinds';
   import { theme, watchSystem, type Theme } from '$lib/theme';
 
@@ -230,6 +234,10 @@
     terminalCollapsed.update((v) => !v);
   }
 
+  function toggleSidebar() {
+    sidebarCollapsed.update((v) => !v);
+  }
+
   $: activeTerminalState = $attachedSessions.find((s) => s.sessionId === $activeTerminalSessionId) ?? null;
 
   /** Total URLs detected across all sessions — drives the Browser tab
@@ -276,7 +284,7 @@
         <span class="popout-hint">tmux session keeps running if you close this window</span>
       </header>
       <div class="popout-term">
-        <Terminal sessionId={t.sessionId} command={t.command} />
+        <Terminal sessionId={t.sessionId} command={t.command} visible={true} />
       </div>
     {:else}
       <div class="popout-loading">
@@ -290,7 +298,24 @@
   </div>
 {:else}
 <div class="root">
-  <Sidebar />
+  {#if !$sidebarCollapsed}
+    <div class="sidebar-wrap" style="width: {$sidebarWidth}px;">
+      <Sidebar onCollapse={toggleSidebar} />
+    </div>
+    <Splitter
+      orientation="horizontal"
+      bind:value={$sidebarWidth}
+      min={180}
+      max={500}
+    />
+  {:else}
+    <button
+      class="sidebar-show"
+      on:click={toggleSidebar}
+      title="Show projects sidebar"
+      aria-label="Show sidebar"
+    >☰</button>
+  {/if}
   <main>
     {#if $reconnecting}
       <div class="reconnect-banner">
@@ -361,7 +386,20 @@
       {/if}
     </section>
     {#if $attachedSessions.length > 0}
-      <section class="terminal-panel" class:collapsed={$terminalCollapsed}>
+      {#if !$terminalCollapsed}
+        <Splitter
+          orientation="vertical"
+          bind:value={$terminalPanelHeight}
+          min={120}
+          max={Math.max(200, window.innerHeight - 200)}
+          invert
+        />
+      {/if}
+      <section
+        class="terminal-panel"
+        class:collapsed={$terminalCollapsed}
+        style={$terminalCollapsed ? '' : `height: ${$terminalPanelHeight}px;`}
+      >
         <div class="terminal-header">
           {#if $attachedSessions.length > 1}
             <div class="term-tabs">
@@ -402,8 +440,9 @@
                visible. This makes switching instant (no pty respawn or xterm
                re-init) and preserves scrollback. -->
           {#each $attachedSessions as t (t.sessionId)}
-            <div class="terminal-slot" class:visible={t.sessionId === $activeTerminalSessionId}>
-              <Terminal sessionId={t.sessionId} command={t.command} />
+            {@const isVisible = t.sessionId === $activeTerminalSessionId && !$terminalCollapsed}
+            <div class="terminal-slot" class:visible={isVisible}>
+              <Terminal sessionId={t.sessionId} command={t.command} visible={isVisible} />
             </div>
           {/each}
         </div>
@@ -463,6 +502,31 @@
 
   .root { display: flex; height: 100vh; background: var(--bg); }
   main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .sidebar-wrap {
+    flex-shrink: 0;
+    display: flex;
+    min-width: 0;
+    height: 100vh;
+  }
+  .sidebar-show {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 50;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: var(--bg-elev);
+    color: var(--fg-dim);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+  }
+  .sidebar-show:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
 
   /* Reconnect banner */
   .reconnect-banner {
@@ -614,12 +678,13 @@
   /* Content + terminal panel */
   .content { flex: 1; overflow-y: auto; min-height: 0; }
   .terminal-panel {
-    height: 340px;
+    /* height set inline from $terminalPanelHeight when expanded */
     border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     background: #0a0c10;
     flex-shrink: 0;
+    min-height: 60px;
   }
   .terminal-header {
     display: flex; justify-content: space-between; align-items: center;

@@ -11,6 +11,10 @@
   import { projectsApi, tauri } from '$lib/tauri';
   import { truncateBranch } from '$lib/format';
 
+  /** Optional collapse callback — when provided, a button appears in the
+   *  header that fully hides the sidebar (handled by parent). */
+  export let onCollapse: (() => void) | null = null;
+
   let busy = false;
   let errMsg: string | null = null;
 
@@ -173,7 +177,17 @@
 <aside>
   <header>
     <span class="title">Projects</span>
-    <button class="add" on:click={addProject} disabled={busy} title="Add project">+</button>
+    <div class="header-actions">
+      <button class="add" on:click={addProject} disabled={busy} title="Add project">+</button>
+      {#if onCollapse}
+        <button
+          class="collapse-btn"
+          on:click={onCollapse}
+          title="Collapse sidebar (click ☰ to bring back)"
+          aria-label="Collapse sidebar"
+        >‹</button>
+      {/if}
+    </div>
   </header>
   {#if errMsg}
     <div class="err">{errMsg}</div>
@@ -271,8 +285,7 @@
 
 <style>
   aside {
-    width: 232px;
-    min-width: 232px;
+    width: 100%;
     border-right: 1px solid var(--border);
     background: var(--bg-elev);
     overflow-y: auto;
@@ -299,7 +312,9 @@
     color: var(--fg-dim);
     font-weight: 600;
   }
-  .add {
+  .header-actions { display: flex; gap: 4px; }
+  .add,
+  .collapse-btn {
     width: 22px;
     height: 22px;
     padding: 0;
@@ -307,8 +322,12 @@
     line-height: 1;
     border-radius: var(--r-sm);
     color: var(--fg-dim);
+    background: transparent;
+    border: 1px solid var(--border);
   }
-  .add:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+  .add:hover:not(:disabled),
+  .collapse-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .collapse-btn { font-size: 13px; }
   .err {
     padding: 8px 12px;
     background: var(--state-error-bg);

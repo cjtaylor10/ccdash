@@ -51,6 +51,38 @@ terminalCollapsed.subscribe((v) => {
   try { localStorage.setItem('ccdash.terminalCollapsed', v ? '1' : '0'); } catch {}
 });
 
+// === Resizable layout (sidebar width, terminal panel height) ===
+
+function readNum(key: string, fallback: number): number {
+  try {
+    const v = localStorage.getItem(key);
+    if (v === null) return fallback;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  } catch { return fallback; }
+}
+
+/** Sidebar width in pixels. Clamped at the consumer site. */
+export const sidebarWidth = writable<number>(readNum('ccdash.sidebarWidth', 232));
+sidebarWidth.subscribe((v) => {
+  try { localStorage.setItem('ccdash.sidebarWidth', String(v)); } catch {}
+});
+
+/** Sidebar fully collapsed (off-canvas with a floating expand button). */
+function readSidebarCollapsed(): boolean {
+  try { return localStorage.getItem('ccdash.sidebarCollapsed') === '1'; } catch { return false; }
+}
+export const sidebarCollapsed = writable<boolean>(readSidebarCollapsed());
+sidebarCollapsed.subscribe((v) => {
+  try { localStorage.setItem('ccdash.sidebarCollapsed', v ? '1' : '0'); } catch {}
+});
+
+/** Terminal panel height in pixels. Clamped at the consumer site. */
+export const terminalPanelHeight = writable<number>(readNum('ccdash.terminalPanelHeight', 340));
+terminalPanelHeight.subscribe((v) => {
+  try { localStorage.setItem('ccdash.terminalPanelHeight', String(v)); } catch {}
+});
+
 /** Per-session browser state — current URL, history stack, reload counter.
  *  Lets each Claude session keep its own browser viewport instead of
  *  fighting over one shared iframe. */
