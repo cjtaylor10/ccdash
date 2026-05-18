@@ -227,3 +227,75 @@ activeView.subscribe((v) => {
     localStorage.setItem('ccdash.activeView', v);
   } catch {}
 });
+
+// === Prompts library ===
+
+export type Prompt = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function readPrompts(): Prompt[] {
+  try {
+    const raw = localStorage.getItem('ccdash.prompts');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const out: Prompt[] = [];
+    for (const p of parsed) {
+      if (
+        p &&
+        typeof p === 'object' &&
+        typeof p.id === 'string' &&
+        typeof p.title === 'string' &&
+        typeof p.body === 'string' &&
+        Number.isFinite(p.createdAt) &&
+        Number.isFinite(p.updatedAt)
+      ) {
+        out.push({
+          id: p.id,
+          title: p.title,
+          body: p.body,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+export const prompts = writable<Prompt[]>(readPrompts());
+prompts.subscribe((v) => {
+  try {
+    localStorage.setItem('ccdash.prompts', JSON.stringify(v));
+  } catch {}
+});
+
+export function addPrompt(): string {
+  const id = (globalThis.crypto as Crypto).randomUUID();
+  const now = Date.now();
+  prompts.update((arr) => [
+    { id, title: '', body: '', createdAt: now, updatedAt: now },
+    ...arr,
+  ]);
+  return id;
+}
+
+export function updatePrompt(
+  id: string,
+  patch: Partial<Pick<Prompt, 'title' | 'body'>>,
+): void {
+  prompts.update((arr) =>
+    arr.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p)),
+  );
+}
+
+export function deletePrompt(id: string): void {
+  prompts.update((arr) => arr.filter((p) => p.id !== id));
+}
