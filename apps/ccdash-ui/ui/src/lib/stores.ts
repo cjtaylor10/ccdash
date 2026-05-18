@@ -101,7 +101,8 @@ export const mirrorTarget = writable<string | null>(null);
 
 // === Panes (upper content area) ===
 
-export type PaneType = 'browser' | 'plans' | 'sessions' | 'ports';
+const PANE_TYPES = ['browser', 'plans', 'sessions', 'ports'] as const;
+export type PaneType = typeof PANE_TYPES[number];
 
 /** A pane in the upper content area. `type === null` means the user clicked
  *  `+ Pane` but hasn't yet picked a content type — the pane renders an
@@ -131,11 +132,7 @@ function readPanes(): Pane[] {
         p &&
         typeof p === 'object' &&
         typeof p.id === 'string' &&
-        (p.type === null ||
-          p.type === 'browser' ||
-          p.type === 'plans' ||
-          p.type === 'sessions' ||
-          p.type === 'ports')
+        (p.type === null || (PANE_TYPES as readonly string[]).includes(p.type))
       ) {
         valid.push({ id: p.id, type: p.type });
       }
