@@ -9,6 +9,7 @@
   } from '$lib/stores';
   import { projectsApi, tauri } from '$lib/tauri';
   import { truncateBranch } from '$lib/format';
+  import SidebarNav from './SidebarNav.svelte';
 
   /** Optional collapse callback — when provided, a button appears in the
    *  header that fully hides the sidebar (handled by parent). */
@@ -207,19 +208,20 @@
 <svelte:window on:click={closeMenu} />
 
 <aside>
-  <header>
+  <header class="sidebar-header">
+    {#if onCollapse}
+      <button
+        class="collapse-btn"
+        on:click={onCollapse}
+        title="Collapse sidebar (click ☰ to bring back)"
+        aria-label="Collapse sidebar"
+      >‹</button>
+    {/if}
+  </header>
+  <SidebarNav />
+  <header class="projects-header">
     <span class="title">Projects</span>
-    <div class="header-actions">
-      <button class="add" on:click={addProject} disabled={busy} title="Add project">+</button>
-      {#if onCollapse}
-        <button
-          class="collapse-btn"
-          on:click={onCollapse}
-          title="Collapse sidebar (click ☰ to bring back)"
-          aria-label="Collapse sidebar"
-        >‹</button>
-      {/if}
-    </div>
+    <button class="add" on:click={addProject} disabled={busy} title="Add project">+</button>
   </header>
   {#if errMsg}
     <div class="err">{errMsg}</div>
@@ -326,25 +328,31 @@
     display: flex;
     flex-direction: column;
   }
-  header {
-    padding: 10px 12px;
+  .sidebar-header {
+    padding: 8px 10px;
     border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    background: var(--bg-elev);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .projects-header {
+    padding: 10px 12px 6px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     background: var(--bg-elev);
-    position: sticky;
-    top: 0;
-    z-index: 1;
   }
-  header .title {
+  .projects-header .title {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 1.4px;
     color: var(--fg-dim);
     font-weight: 600;
   }
-  .header-actions { display: flex; gap: 4px; }
   .add,
   .collapse-btn {
     width: 22px;
