@@ -8,7 +8,6 @@
     activeTab,
     connectError,
     connected,
-    detectedUrls,
     mirrorTarget,
     nextRetryAt,
     plans,
@@ -17,7 +16,9 @@
     reconnecting,
     selectedProjectId,
     sessions,
-    terminalPane,
+    attachedSessions,
+    activeTerminalSessionId,
+    detectedUrlsBySession,
   } from '$lib/stores';
   import {
     startPublishing,
@@ -65,14 +66,17 @@
       sessions.set(ss);
       const ports_ = await tauri.portsList();
       ports.set(ports_);
-      // Feed detected URLs: every running TCP listener on a loopback-like
-      // host becomes http://localhost:PORT. Terminal output adds more.
+      // Feed machine-wide detected URLs (null session key) — every running
+      // TCP listener on a loopback host becomes http://localhost:PORT. The
+      // Terminal component adds per-session URLs scoped to its session id.
       if (ports_.running.length > 0) {
-        detectedUrls.update((s) => {
-          const next = new Set(s);
+        detectedUrlsBySession.update((m) => {
+          const next = new Map(m);
+          const global = new Set(next.get(null) ?? []);
           for (const p of ports_.running) {
-            next.add(`http://localhost:${p.port}`);
+            global.add(`http://localhost:${p.port}`);
           }
+          next.set(null, global);
           return next;
         });
       }
@@ -168,9 +172,31 @@
     activeTab.set(t);
   }
 
+  /** Close the currently-active terminal pane: removes it from the
+   *  attachedSessions list (which unmounts its Terminal component +
+   *  closes its pty) and switches to the next attached session if any,
+   *  otherwise hides the panel entirely. */
   function closeTerminal() {
-    terminalPane.set(null);
+    const active = $activeTerminalSessionId;
+    if (!active) return;
+    const remaining = $attachedSessions.filter((s) => s.sessionId !== active);
+    attachedSessions.set(remaining);
+    activeTerminalSessionId.set(remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null);
   }
+
+  function switchTerminal(sessionId: string) {
+    activeTerminalSessionId.set(sessionId);
+  }
+
+  $: activeTerminalState = $attachedSessions.find((s) => s.sessionId === $activeTerminalSessionId) ?? null;
+
+  /** Total URLs detected across all sessions — drives the Browser tab
+   *  badge regardless of which session is currently active. */
+  $: totalDetectedUrls = (() => {
+    let n = 0;
+    for (const urls of $detectedUrlsBySession.values()) n += urls.size;
+    return n;
+  })();
 
   function onMirrorChange(e: Event) {
     const v = (e.target as HTMLSelectElement).value;
@@ -226,8 +252,8 @@
         </button>
         <button class="pill" class:active={$activeTab === 'browser'} on:click={() => setTab('browser')} role="tab" aria-selected={$activeTab === 'browser'}>
           Browser
-          {#if $detectedUrls.size > 0}
-            <span class="count" class:pulse={$activeTab !== 'browser'}>{$detectedUrls.size}</span>
+          {#if totalDetectedUrls > 0}
+            <span class="count" class:pulse={$activeTab !== 'browser'}>{totalDetectedUrls}</span>
           {/if}
         </button>
       </div>
@@ -263,16 +289,37 @@
         <BrowserView />
       {/if}
     </section>
-    {#if $terminalPane}
+    {#if $attachedSessions.length > 0}
       <section class="terminal-panel">
         <div class="terminal-header">
-          <span>Terminal: {$terminalPane.command.join(' ')}</span>
-          <button on:click={closeTerminal}>Close</button>
+          {#if $attachedSessions.length > 1}
+            <div class="term-tabs">
+              {#each $attachedSessions as t (t.sessionId)}
+                {@const sess = $sessions.find((s) => s.tmux_session_id === t.sessionId)}
+                <button
+                  class="term-tab"
+                  class:active={t.sessionId === $activeTerminalSessionId}
+                  on:click={() => switchTerminal(t.sessionId)}
+                >
+                  <code>{t.sessionId}</code>
+                  {#if sess}<span class="term-tab-name">{sess.name}</span>{/if}
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <span>Terminal: <code>{activeTerminalState?.command.join(' ')}</code></span>
+          {/if}
+          <button class="close-btn" on:click={closeTerminal} title="Close this terminal">Close</button>
         </div>
         <div class="terminal-host">
-          {#key $terminalPane.command.join(' ')}
-            <Terminal command={$terminalPane.command} />
-          {/key}
+          <!-- All attached terminals stay mounted; only the active one is
+               visible. This makes switching instant (no pty respawn or xterm
+               re-init) and preserves scrollback. -->
+          {#each $attachedSessions as t (t.sessionId)}
+            <div class="terminal-slot" class:visible={t.sessionId === $activeTerminalSessionId}>
+              <Terminal sessionId={t.sessionId} command={t.command} />
+            </div>
+          {/each}
         </div>
       </section>
     {/if}
@@ -449,8 +496,67 @@
   }
   .terminal-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border);
+    padding: 4px 10px 4px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border);
     font-family: var(--mono); font-size: 11px; color: var(--fg-dim);
+    gap: 8px;
   }
-  .terminal-host { flex: 1; overflow: hidden; }
+  .terminal-header code { color: var(--fg); }
+  .terminal-header .close-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+  }
+  .term-tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    flex: 1;
+  }
+  .term-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    border-radius: var(--r-sm);
+    padding: 3px 9px;
+    font-size: 11px;
+    font-family: var(--sans);
+    cursor: pointer;
+  }
+  .term-tab code {
+    font-family: var(--mono);
+    color: var(--fg-mute);
+    font-size: 10.5px;
+  }
+  .term-tab:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
+  .term-tab.active {
+    background: var(--accent-bg-strong);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .term-tab.active code { color: var(--accent); }
+  .term-tab-name {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .terminal-host {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  .terminal-slot {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    /* Stay rendered but moved off-screen so xterm's resize observer fires
+       when we re-show it. visibility: hidden is enough to hide it visually
+       while keeping the element laid out. */
+  }
+  .terminal-slot.visible {
+    visibility: visible;
+    z-index: 1;
+  }
 </style>

@@ -5,9 +5,14 @@
   import { listen } from '@tauri-apps/api/event';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { terminal } from '$lib/tauri';
-  import { detectedUrls } from '$lib/stores';
+  import { detectedUrlsBySession } from '$lib/stores';
   import { extractLocalUrls } from '$lib/urlDetect';
   import '@xterm/xterm/css/xterm.css';
+
+  /** Tmux session id this terminal is wrapping (e.g. "$0"). URLs detected
+   *  from this pane's output are recorded against this id so the BrowserView
+   *  can scope its suggestions per session. */
+  export let sessionId: string;
 
   const decoder = new TextDecoder();
 
@@ -39,13 +44,16 @@
     unlistenOutput = await listen<number[]>(`terminal-output::${ptyId}`, (e) => {
       const bytes = new Uint8Array(e.payload);
       xterm!.write(bytes);
-      // Scan for loopback URLs and surface them to the Browser tab.
+      // Scan for loopback URLs and surface them to the Browser tab,
+      // scoped to this session's id.
       const text = decoder.decode(bytes, { stream: true });
       const urls = extractLocalUrls(text);
       if (urls.length > 0) {
-        detectedUrls.update((s) => {
-          const next = new Set(s);
-          for (const u of urls) next.add(u);
+        detectedUrlsBySession.update((m) => {
+          const next = new Map(m);
+          const set = new Set(next.get(sessionId) ?? []);
+          for (const u of urls) set.add(u);
+          next.set(sessionId, set);
           return next;
         });
       }

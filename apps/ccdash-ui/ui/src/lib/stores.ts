@@ -15,15 +15,44 @@ export const plans = writable<Plan[]>([]);
 
 export const activeTab = writable<'sessions' | 'ports' | 'plans' | 'browser'>('sessions');
 
-/** Loopback URLs detected from terminal output + listening ports.
- *  BrowserView displays these as one-click entries. */
-export const detectedUrls = writable<Set<string>>(new Set());
+/** Loopback URLs detected from terminal output, grouped by the tmux session
+ *  id that emitted them. A `null` key collects URLs derived from the
+ *  machine-wide port scan (no session affiliation). BrowserView merges the
+ *  active session's set with the `null` set when displaying suggestions. */
+export const detectedUrlsBySession = writable<Map<string | null, Set<string>>>(
+  new Map([[null, new Set()]]),
+);
 
 export type TerminalPaneState = {
+  /** tmux session id this pane is attached to (e.g. "$0"). */
+  sessionId: string;
+  /** Command vector used to mount the xterm — always
+   *  ["tmux", "attach-session", "-t", sessionId]. Kept verbatim so the
+   *  Terminal component can echo it in its header and for parity with the
+   *  existing pty-bridge contract. */
   command: string[];
-  mode: 'live';
 };
-export const terminalPane = writable<TerminalPaneState | null>(null);
+
+/** Sessions the user has clicked Attach on. Order = insertion order.
+ *  Each gets a persistent xterm + pty in App.svelte; switching between
+ *  them just toggles visibility (no remount, no scrollback loss). */
+export const attachedSessions = writable<TerminalPaneState[]>([]);
+
+/** The currently-visible attached session, or null if no terminal is open. */
+export const activeTerminalSessionId = writable<string | null>(null);
+
+/** Per-session browser state — current URL, history stack, reload counter.
+ *  Lets each Claude session keep its own browser viewport instead of
+ *  fighting over one shared iframe. */
+export type BrowserState = {
+  history: string[];
+  index: number;
+  address: string;
+  reloadCounter: number;
+};
+export const browserStateBySession = writable<Map<string | null, BrowserState>>(
+  new Map([[null, { history: [], index: -1, address: '', reloadCounter: 0 }]]),
+);
 
 /** When set to a window label, this window mirrors that one's UI state. */
 export const mirrorTarget = writable<string | null>(null);

@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { projects, sessions, selectedProjectId, terminalPane } from '$lib/stores';
+  import {
+    projects,
+    sessions,
+    selectedProjectId,
+    attachedSessions,
+    activeTerminalSessionId,
+  } from '$lib/stores';
   import { sessionsApi, tauri } from '$lib/tauri';
   import EmptyState from './EmptyState.svelte';
 
@@ -25,22 +31,25 @@
       })
     : scoped;
 
+  /** Add the session to the attached set if absent, and make it the
+   *  active terminal. If it's already attached, just switch to it —
+   *  instant, no pty respawn, no scrollback loss. */
   function attach(sessionId: string) {
-    // Skip if this exact session is already attached — avoids re-creating the
-    // terminal pane (and dropping scrollback) on row reselection.
-    if (isAttached(sessionId)) return;
-    terminalPane.set({
-      command: ['tmux', 'attach-session', '-t', sessionId],
-      mode: 'live',
-    });
+    const already = $attachedSessions.some((s) => s.sessionId === sessionId);
+    if (!already) {
+      attachedSessions.update((arr) => [
+        ...arr,
+        {
+          sessionId,
+          command: ['tmux', 'attach-session', '-t', sessionId],
+        },
+      ]);
+    }
+    activeTerminalSessionId.set(sessionId);
   }
 
-  /** Currently-attached tmux session id, derived from the terminalPane
-   *  command vector — last arg is the `-t <id>` value. */
   function isAttached(sessionId: string): boolean {
-    const cmd = $terminalPane?.command;
-    if (!cmd || cmd.length < 4) return false;
-    return cmd[0] === 'tmux' && cmd[1] === 'attach-session' && cmd[3] === sessionId;
+    return $activeTerminalSessionId === sessionId;
   }
 
   async function kill(sessionId: string, name: string) {
@@ -49,6 +58,13 @@
     errMsg = null;
     try {
       await sessionsApi.kill(sessionId);
+      // If this session was attached, close its terminal pane too — there's
+      // nothing left for the pty to read from.
+      attachedSessions.update((arr) => arr.filter((s) => s.sessionId !== sessionId));
+      if ($activeTerminalSessionId === sessionId) {
+        const remaining = $attachedSessions.filter((s) => s.sessionId !== sessionId);
+        activeTerminalSessionId.set(remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null);
+      }
       const { sessions: ss } = await tauri.sessionList();
       sessions.set(ss);
     } catch (e) {

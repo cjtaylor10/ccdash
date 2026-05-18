@@ -1,54 +1,102 @@
 <script lang="ts">
-  import { detectedUrls } from '$lib/stores';
+  import {
+    activeTerminalSessionId,
+    attachedSessions,
+    browserStateBySession,
+    detectedUrlsBySession,
+    sessions,
+  } from '$lib/stores';
   import { openExternal } from '$lib/tauri';
 
-  /** Simple back/forward history of URLs the user has navigated to. */
-  let history: string[] = [];
-  let historyIndex = -1;
-  /** Address bar text — may diverge from `current` until the user hits Go. */
-  let address = '';
-  let reloadCounter = 0;
   let errMsg: string | null = null;
 
-  $: current = historyIndex >= 0 ? history[historyIndex] : null;
-  $: canBack = historyIndex > 0;
-  $: canForward = historyIndex < history.length - 1;
-  $: sortedUrls = [...$detectedUrls].sort();
+  /** Which session's browser context is showing. Defaults to the currently
+   *  attached terminal — switching terminals switches the browser too,
+   *  preserving each session's own URL + history. The user can also pick
+   *  "All" (null) to see machine-wide URL detection. */
+  let viewSession: string | null = $activeTerminalSessionId;
+
+  // Keep the browser context synced to the active terminal — unless the user
+  // explicitly overrode by picking another session from the dropdown.
+  let userOverride = false;
+  $: if (!userOverride) viewSession = $activeTerminalSessionId;
+
+  /** Default per-session browser state shape — created lazily on first use. */
+  function defaultState() {
+    return { history: [], index: -1, address: '', reloadCounter: 0 };
+  }
+
+  /** Live view of the active session's browser state. */
+  $: state =
+    $browserStateBySession.get(viewSession) ?? defaultState();
+  $: current = state.index >= 0 ? state.history[state.index] : null;
+  $: canBack = state.index > 0;
+  $: canForward = state.index < state.history.length - 1;
+
+  /** Detected URLs the active session can navigate to. The global (null)
+   *  port-derived set is always merged in so machine-wide listeners show
+   *  up regardless of which session detected them. */
+  $: sortedUrls = (() => {
+    const m = $detectedUrlsBySession;
+    const merged = new Set<string>();
+    for (const u of m.get(null) ?? []) merged.add(u);
+    if (viewSession !== null) {
+      for (const u of m.get(viewSession) ?? []) merged.add(u);
+    } else {
+      // "All" view: union of every per-session set.
+      for (const [k, set] of m) {
+        if (k === null) continue;
+        for (const u of set) merged.add(u);
+      }
+    }
+    return [...merged].sort();
+  })();
+
+  function updateState(mut: (s: { history: string[]; index: number; address: string; reloadCounter: number }) => void) {
+    browserStateBySession.update((m) => {
+      const next = new Map(m);
+      const s = { ...(next.get(viewSession) ?? defaultState()) };
+      mut(s);
+      next.set(viewSession, s);
+      return next;
+    });
+  }
 
   function navigate(url: string) {
     if (!url) return;
     errMsg = null;
-    // Truncate the forward tail when navigating from a back-traversed state.
-    history = [...history.slice(0, historyIndex + 1), url];
-    historyIndex = history.length - 1;
-    address = url;
+    updateState((s) => {
+      s.history = [...s.history.slice(0, s.index + 1), url];
+      s.index = s.history.length - 1;
+      s.address = url;
+    });
   }
 
   function go() {
-    let url = address.trim();
+    let url = state.address.trim();
     if (!url) return;
-    if (!/^https?:\/\//i.test(url)) {
-      url = `http://${url}`;
-    }
+    if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
     navigate(url);
   }
 
   function back() {
-    if (canBack) {
-      historyIndex--;
-      address = history[historyIndex];
-    }
+    if (!canBack) return;
+    updateState((s) => {
+      s.index--;
+      s.address = s.history[s.index];
+    });
   }
 
   function forward() {
-    if (canForward) {
-      historyIndex++;
-      address = history[historyIndex];
-    }
+    if (!canForward) return;
+    updateState((s) => {
+      s.index++;
+      s.address = s.history[s.index];
+    });
   }
 
   function reload() {
-    reloadCounter++;
+    updateState((s) => { s.reloadCounter++; });
   }
 
   async function external() {
@@ -60,9 +108,31 @@
     }
   }
 
+  function onAddressInput(e: Event) {
+    const v = (e.target as HTMLInputElement).value;
+    updateState((s) => { s.address = v; });
+  }
+
   function onAddressKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') go();
   }
+
+  function onContextChange(e: Event) {
+    const v = (e.target as HTMLSelectElement).value;
+    viewSession = v === '__all__' ? null : v;
+    userOverride = true;
+  }
+
+  function followActive() {
+    userOverride = false;
+    viewSession = $activeTerminalSessionId;
+  }
+
+  $: contextLabel = (() => {
+    if (viewSession === null) return 'All sessions';
+    const sess = $sessions.find((s) => s.tmux_session_id === viewSession);
+    return sess?.name ?? viewSession;
+  })();
 </script>
 
 <div class="root">
@@ -73,12 +143,32 @@
     <input
       type="text"
       class="address"
-      bind:value={address}
+      value={state.address}
+      on:input={onAddressInput}
       on:keydown={onAddressKeydown}
       placeholder="http://localhost:3000"
     />
     <button class="go" on:click={go}>Go</button>
     <button class="ext" on:click={external} disabled={!current} title="Open in external browser">↗</button>
+  </div>
+
+  <div class="context-bar">
+    <span class="ctx-label">Browser for:</span>
+    <select class="ctx-select" value={viewSession ?? '__all__'} on:change={onContextChange}>
+      <option value="__all__">All sessions</option>
+      {#each $attachedSessions as t (t.sessionId)}
+        {@const sess = $sessions.find((s) => s.tmux_session_id === t.sessionId)}
+        <option value={t.sessionId}>
+          {sess?.name ?? t.sessionId} ({t.sessionId})
+        </option>
+      {/each}
+    </select>
+    {#if userOverride && $activeTerminalSessionId && viewSession !== $activeTerminalSessionId}
+      <button class="follow-btn" on:click={followActive} title="Follow the currently-attached session">
+        ↺ follow active
+      </button>
+    {/if}
+    <span class="ctx-name">{contextLabel}</span>
   </div>
 
   {#if errMsg}
@@ -90,7 +180,7 @@
       <h3>Detected</h3>
       {#if sortedUrls.length === 0}
         <div class="empty">
-          Launch a dev server and we'll surface its URL here. Running ports + terminal output are both watched.
+          Launch a dev server and we'll surface its URL here. Running ports + terminal output (for this session) are both watched.
         </div>
       {:else}
         <ul>
@@ -105,12 +195,12 @@
 
     <div class="iframe-host">
       {#if current}
-        {#key `${current}::${reloadCounter}`}
+        {#key `${viewSession ?? '__all__'}::${current}::${state.reloadCounter}`}
           <iframe title="Preview" src={current}></iframe>
         {/key}
       {:else}
         <div class="placeholder">
-          <p>No URL loaded.</p>
+          <p>No URL loaded for {contextLabel}.</p>
           <p>Pick one from the left rail or type an address up top.</p>
         </div>
       {/if}
@@ -172,6 +262,45 @@
     background: var(--state-error-bg);
     color: var(--state-error);
     font-size: 11.5px;
+  }
+  .context-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--fg-dim);
+  }
+  .ctx-label {
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-size: 10px;
+    color: var(--fg-mute);
+  }
+  .ctx-select {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 2px 6px;
+    font-size: 11px;
+    max-width: 280px;
+  }
+  .follow-btn {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: var(--r-sm);
+    padding: 2px 8px;
+    font-size: 10.5px;
+  }
+  .follow-btn:hover { background: var(--accent-bg); }
+  .ctx-name {
+    margin-left: auto;
+    font-family: var(--mono);
+    color: var(--fg-mute);
   }
   .main {
     flex: 1;
