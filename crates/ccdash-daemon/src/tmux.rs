@@ -74,17 +74,32 @@ fn parse_panes(s: &str) -> Vec<PaneRow> {
         .collect()
 }
 
+/// Wrap `command` so it runs through the user's login shell. This loads
+/// the user's PATH and shell init (~/.zshrc, ~/.bashrc, NVM, pyenv,
+/// pipx, ~/.local/bin, etc.) — without this, the daemon's minimal env
+/// can't find user-installed binaries like `claude`, `pnpm`, or anything
+/// in `~/.local/bin`.
+fn wrap_in_login_shell(command: &str) -> (String, String) {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // Use exec so the user's command BECOMES the shell process — that way
+    // tmux's pane_current_command shows the actual command (e.g. "claude")
+    // not the wrapper shell.
+    let wrapped = format!("exec {}", command);
+    (shell, wrapped)
+}
+
 /// Launch a new detached tmux session running `command` in `cwd` with name
-/// `requested_name`. If a tmux session with that name already exists, retries
-/// with `requested_name_2`, `_3`, … up to `_99` until a fresh name lands so
-/// "just launch again" works without the user having to clean up stale
-/// sessions. Sets `remain-on-exit on` so the pane survives when `command`
-/// exits. Returns `(session_id, actual_name)`.
+/// `requested_name`. The command runs inside the user's login shell so the
+/// daemon's stripped environment doesn't hide user-installed binaries. If a
+/// tmux session with `requested_name` already exists, retries with
+/// `requested_name_2`, `_3`, … up to `_99`. Sets `remain-on-exit on` so the
+/// pane survives when `command` exits. Returns `(session_id, actual_name)`.
 pub async fn new_session(
     requested_name: &str,
     cwd: &Path,
     command: &str,
 ) -> Result<(String, String)> {
+    let (shell, wrapped_cmd) = wrap_in_login_shell(command);
     for suffix in 0..100 {
         let name = if suffix == 0 {
             requested_name.to_string()
@@ -99,7 +114,10 @@ pub async fn new_session(
                 &name,
                 "-c",
                 &cwd.to_string_lossy(),
-                command,
+                &shell,
+                "-l",
+                "-c",
+                &wrapped_cmd,
             ])
             .output()
             .await

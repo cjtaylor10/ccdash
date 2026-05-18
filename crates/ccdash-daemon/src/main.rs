@@ -30,10 +30,18 @@ fn augment_path() {
         "/sbin",
     ];
     let existing = std::env::var("PATH").unwrap_or_default();
-    let mut parts: Vec<&str> = existing.split(':').collect();
+    let mut parts: Vec<String> = existing.split(':').map(String::from).collect();
     for need in NEEDED {
         if !parts.iter().any(|p| p == need) {
-            parts.push(need);
+            parts.push((*need).to_string());
+        }
+    }
+    // Also add ~/.local/bin — common location for `claude`, `pipx`-installed
+    // tools, and other user-local installs.
+    if let Ok(home) = std::env::var("HOME") {
+        let local_bin = format!("{}/.local/bin", home);
+        if !parts.iter().any(|p| p == &local_bin) {
+            parts.push(local_bin);
         }
     }
     std::env::set_var("PATH", parts.join(":"));
