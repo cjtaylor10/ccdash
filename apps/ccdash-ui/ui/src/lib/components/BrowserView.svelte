@@ -178,9 +178,8 @@
       on:input={onAddressInput}
       on:keydown={onAddressKeydown}
       placeholder="http://localhost:3000"
-      disabled={!hasActiveSubtab}
     />
-    <button class="go" on:click={go} disabled={!hasActiveSubtab}>Go</button>
+    <button class="go" on:click={go}>Go</button>
     <button class="ext" on:click={external} disabled={!current} title="Open in external browser">↗</button>
     <button class="ext" on:click={snapshot} disabled={!current} title="Screenshot preview to clipboard" aria-label="Screenshot preview">⎙</button>
   </div>
@@ -221,7 +220,7 @@
         <ul>
           {#each sortedUrls as u (u)}
             <li class:active={current === u}>
-              <button on:click={() => navigate(u)} disabled={!hasActiveSubtab}><code>{u}</code></button>
+              <button on:click={() => navigate(u)}><code>{u}</code></button>
             </li>
           {/each}
         </ul>
@@ -393,7 +392,8 @@
     cursor: pointer;
     border-left: 2px solid transparent;
   }
-  .rail li button:hover { background: var(--bg-elev-2); color: var(--fg); }
+  .rail li button:hover:not(:disabled) { background: var(--bg-elev-2); color: var(--fg); }
+  .rail li button:disabled { cursor: not-allowed; opacity: 0.45; }
   .rail li.active button {
     background: var(--accent-bg);
     color: var(--accent);
