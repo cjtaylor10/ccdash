@@ -208,16 +208,16 @@
 <svelte:window on:click={closeMenu} />
 
 <aside>
-  <header class="sidebar-header">
-    {#if onCollapse}
+  {#if onCollapse}
+    <header class="sidebar-header">
       <button
         class="collapse-btn"
         on:click={onCollapse}
         title="Collapse sidebar (click ☰ to bring back)"
         aria-label="Collapse sidebar"
       >‹</button>
-    {/if}
-  </header>
+    </header>
+  {/if}
   <SidebarNav />
   <header class="projects-header">
     <span class="title">Projects</span>

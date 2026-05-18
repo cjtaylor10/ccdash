@@ -220,7 +220,7 @@
     flex-shrink: 0;
   }
   .new-btn:hover { filter: brightness(1.08); }
-  .list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; }
+  .list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; flex: 1; min-height: 0; }
   .list li {
     display: flex;
     align-items: center;
