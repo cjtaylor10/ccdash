@@ -3,7 +3,7 @@
   import { writable } from 'svelte/store';
   import { listen } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
-  import { daemonApi, tauri, windows as windowsApi } from '$lib/tauri';
+  import { daemonApi, screenshot as screenshotApi, tauri, windows as windowsApi } from '$lib/tauri';
   import {
     activeTab,
     connectError,
@@ -47,6 +47,7 @@
   import Splitter from '$lib/components/Splitter.svelte';
   import { installKeybinds } from '$lib/keybinds';
   import { theme, watchSystem, type Theme } from '$lib/theme';
+  import { toast, showToast } from '$lib/toast';
 
   const otherWindowList = writable<string[]>([]);
 
@@ -242,6 +243,17 @@
     sidebarCollapsed.update((v) => !v);
   }
 
+  async function takeWindowScreenshot() {
+    try {
+      await screenshotApi.window();
+      showToast('Screenshot copied to clipboard');
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? (e as { message: string }).message : String(e);
+      await invoke('log_from_frontend', { level: 'error', message: `screenshot_window failed: ${msg}` }).catch(() => {});
+      showToast(`Screenshot failed: ${msg}`, 'err');
+    }
+  }
+
   /** Track the window's inner height reactively so the terminal-panel
    *  splitter's max can grow when the user resizes the OS window. */
   let windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
@@ -367,6 +379,7 @@
           <span class="plus">+</span> Launch
         </button>
         <button class="icon-btn" on:click={() => windowsApi.openNew()} title="New window (⌘N)">⊞</button>
+        <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
         {#if $otherWindowList.length > 0}
           <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
             <option value="">independent</option>
@@ -468,6 +481,10 @@
   bind:open={paletteOpen}
   on:openLaunchDialog={() => (launchOpen = true)}
 />
+
+{#if $toast}
+  <div class="toast toast-{$toast.kind}" role="status">{$toast.msg}</div>
+{/if}
 
 <style>
   /* Popped-out window mode */
@@ -785,5 +802,32 @@
   .terminal-slot.visible {
     visibility: visible;
     z-index: 1;
+  }
+
+  /* Toast (screenshot feedback) */
+  .toast {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 1000;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: var(--bg-elev-2);
+    color: var(--fg);
+    box-shadow: var(--shadow-sm);
+    animation: toast-in 0.15s ease-out;
+  }
+  .toast-ok { border-color: var(--state-running); }
+  .toast-err {
+    background: var(--state-error-bg);
+    color: var(--state-error);
+    border-color: var(--state-error);
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 </style>

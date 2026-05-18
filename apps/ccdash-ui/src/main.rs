@@ -6,6 +6,7 @@ mod client_state;
 mod commands;
 mod event_bridge;
 mod pty;
+mod screenshot;
 mod window_clamp;
 mod windows;
 
@@ -84,6 +85,21 @@ fn main() {
     }
     tracing::info!("ccdash-ui starting");
 
+    #[cfg(target_os = "macos")]
+    {
+        let pid = std::process::id();
+        let exe = std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "?".into());
+        let has = screenshot::has_screen_recording_permission();
+        tracing::info!(
+            "screen recording permission: granted={} pid={} exe={}",
+            has,
+            pid,
+            exe
+        );
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -124,6 +140,8 @@ fn main() {
             commands::list_windows,
             commands::publish_window_state,
             commands::log_from_frontend,
+            screenshot::screenshot_window,
+            screenshot::screenshot_region,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

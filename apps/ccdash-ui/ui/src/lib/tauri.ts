@@ -118,6 +118,22 @@ export const windows = {
   currentLabel: () => getCurrentWindow().label,
 };
 
+/** Screenshot helpers — capture either the whole current window or an
+ *  arbitrary rect (CSS pixels, relative to the window's client area) and
+ *  copy the result to the system clipboard. macOS only for now. */
+export const screenshot = {
+  window: () =>
+    invoke<void>('screenshot_window', { label: getCurrentWindow().label }),
+  region: (x: number, y: number, width: number, height: number) =>
+    invoke<void>('screenshot_region', {
+      label: getCurrentWindow().label,
+      x,
+      y,
+      width,
+      height,
+    }),
+};
+
 // === Phase 6: project + session management ===
 
 export interface PortConflict {

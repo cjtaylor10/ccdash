@@ -6,7 +6,9 @@
     detectedUrlsBySession,
     sessions,
   } from '$lib/stores';
-  import { openExternal } from '$lib/tauri';
+  import { openExternal, screenshot as screenshotApi } from '$lib/tauri';
+  import { showToast } from '$lib/toast';
+  import { invoke } from '@tauri-apps/api/core';
 
   let errMsg: string | null = null;
 
@@ -108,6 +110,28 @@
     }
   }
 
+  /** Reference to the iframe-host element — we capture its bounding rect
+   *  so the screenshot covers exactly the rendered preview area (no chrome
+   *  bar, no context bar, no left rail). */
+  let iframeHost: HTMLDivElement;
+
+  async function snapshot() {
+    if (!iframeHost) return;
+    const r = iframeHost.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) {
+      showToast('Browser preview has no visible area to capture', 'err');
+      return;
+    }
+    try {
+      await screenshotApi.region(r.left, r.top, r.width, r.height);
+      showToast('Browser screenshot copied to clipboard');
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? (e as { message: string }).message : String(e);
+      await invoke('log_from_frontend', { level: 'error', message: `screenshot_region failed: ${msg}` }).catch(() => {});
+      showToast(`Screenshot failed: ${msg}`, 'err');
+    }
+  }
+
   function onAddressInput(e: Event) {
     const v = (e.target as HTMLInputElement).value;
     updateState((s) => { s.address = v; });
@@ -150,6 +174,7 @@
     />
     <button class="go" on:click={go}>Go</button>
     <button class="ext" on:click={external} disabled={!current} title="Open in external browser">↗</button>
+    <button class="ext" on:click={snapshot} disabled={!current} title="Screenshot preview to clipboard" aria-label="Screenshot preview">⎙</button>
   </div>
 
   <div class="context-bar">
@@ -193,7 +218,7 @@
       {/if}
     </aside>
 
-    <div class="iframe-host">
+    <div class="iframe-host" bind:this={iframeHost}>
       {#if current}
         {#key `${viewSession ?? '__all__'}::${current}::${state.reloadCounter}`}
           <iframe title="Preview" src={current}></iframe>
