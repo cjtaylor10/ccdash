@@ -209,3 +209,21 @@ export function setPaneType(id: string, type: PaneType): void {
 // === Phase 7: reconnect state ===
 export const reconnecting = writable<boolean>(false);
 export const nextRetryAt = writable<number | null>(null);
+
+// === Top-level view (workspace vs. prompts) ===
+
+function readActiveView(): 'workspace' | 'prompts' {
+  try {
+    const v = localStorage.getItem('ccdash.activeView');
+    return v === 'prompts' ? 'prompts' : 'workspace';
+  } catch {
+    return 'workspace';
+  }
+}
+
+export const activeView = writable<'workspace' | 'prompts'>(readActiveView());
+activeView.subscribe((v) => {
+  try {
+    localStorage.setItem('ccdash.activeView', v);
+  } catch {}
+});
