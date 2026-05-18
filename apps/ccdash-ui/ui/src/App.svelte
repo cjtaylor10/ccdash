@@ -5,7 +5,6 @@
   import { invoke } from '@tauri-apps/api/core';
   import { daemonApi, screenshot as screenshotApi, tauri, windows as windowsApi } from '$lib/tauri';
   import {
-    activeTab,
     connectError,
     connected,
     mirrorTarget,
@@ -24,6 +23,8 @@
     sidebarCollapsed,
     terminalPanelHeight,
   } from '$lib/stores';
+  import PaneContainer from '$lib/components/PaneContainer.svelte';
+  import { addPane, paneLayoutDirection } from '$lib/stores';
   import {
     startPublishing,
     stopPublishing,
@@ -36,13 +37,9 @@
     stopReconnectLoop,
   } from '$lib/reconnect';
   import Sidebar from '$lib/components/Sidebar.svelte';
-  import SessionsView from '$lib/components/SessionsView.svelte';
-  import PortsView from '$lib/components/PortsView.svelte';
-  import PlansView from '$lib/components/PlansView.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
   import LaunchDialog from '$lib/components/LaunchDialog.svelte';
   import WelcomeModal from '$lib/components/WelcomeModal.svelte';
-  import BrowserView from '$lib/components/BrowserView.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import Splitter from '$lib/components/Splitter.svelte';
   import { installKeybinds } from '$lib/keybinds';
@@ -200,10 +197,6 @@
     };
   });
 
-  function setTab(t: 'sessions' | 'ports' | 'plans' | 'browser') {
-    activeTab.set(t);
-  }
-
   /** Close the currently-active terminal pane: removes it from the
    *  attachedSessions list (which unmounts its Terminal component +
    *  closes its pty) and switches to the next attached session if any,
@@ -261,14 +254,6 @@
 
   $: activeTerminalState = $attachedSessions.find((s) => s.sessionId === $activeTerminalSessionId) ?? null;
 
-  /** Total URLs detected across all sessions — drives the Browser tab
-   *  badge regardless of which session is currently active. */
-  $: totalDetectedUrls = (() => {
-    let n = 0;
-    for (const urls of $detectedUrlsBySession.values()) n += urls.size;
-    return n;
-  })();
-
   function onMirrorChange(e: Event) {
     const v = (e.target as HTMLSelectElement).value;
     if (v) startMirroring(v);
@@ -283,10 +268,6 @@
     $reconnecting ? 'yellow' : $connected ? 'green' : 'red';
   $: healthTitle =
     $reconnecting ? 'Reconnecting…' : $connected ? 'Daemon connected' : 'Daemon disconnected';
-
-  $: sessionsCount = $sessions.filter((s) => s.state === 'running').length;
-  $: portsCount = $ports.running.length;
-  $: plansCount = $plans.length;
 </script>
 
 {#if poppedOutSession}
@@ -354,31 +335,22 @@
       </div>
     {/if}
     <header>
-      <div class="tabs" role="tablist">
-        <button class="pill" class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')} role="tab" aria-selected={$activeTab === 'sessions'}>
-          Sessions
-          {#if sessionsCount > 0}<span class="count">{sessionsCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'ports'} on:click={() => setTab('ports')} role="tab" aria-selected={$activeTab === 'ports'}>
-          Ports
-          {#if portsCount > 0}<span class="count">{portsCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'plans'} on:click={() => setTab('plans')} role="tab" aria-selected={$activeTab === 'plans'}>
-          Plans
-          {#if plansCount > 0}<span class="count">{plansCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'browser'} on:click={() => setTab('browser')} role="tab" aria-selected={$activeTab === 'browser'}>
-          Browser
-          {#if totalDetectedUrls > 0}
-            <span class="count" class:pulse={$activeTab !== 'browser'}>{totalDetectedUrls}</span>
-          {/if}
-        </button>
-      </div>
+      <button
+        class="layout-toggle"
+        on:click={() => paneLayoutDirection.update((d) => (d === 'row' ? 'column' : 'row'))}
+        title={$paneLayoutDirection === 'row' ? 'Switch to column layout' : 'Switch to row layout'}
+        aria-label="Toggle pane layout direction"
+      >{$paneLayoutDirection === 'row' ? '⇄' : '⇅'}</button>
       <div class="actions">
         <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
           <span class="plus">+</span> Launch
         </button>
-        <button class="icon-btn" on:click={() => windowsApi.openNew()} title="New window (⌘N)">⊞</button>
+        <button class="secondary" on:click={addPane} title="Add a pane to this window">
+          <span class="plus">+</span> Pane
+        </button>
+        <button class="secondary" on:click={() => windowsApi.openNew()} title="Open a new ccdash window (⌘N)">
+          <span class="plus">+</span> Window
+        </button>
         <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
         {#if $otherWindowList.length > 0}
           <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
@@ -397,15 +369,7 @@
       </div>
     </header>
     <section class="content">
-      {#if $activeTab === 'sessions'}
-        <SessionsView />
-      {:else if $activeTab === 'ports'}
-        <PortsView />
-      {:else if $activeTab === 'plans'}
-        <PlansView />
-      {:else}
-        <BrowserView />
-      {/if}
+      <PaneContainer />
     </section>
     {#if $attachedSessions.length > 0}
       {#if !$terminalCollapsed}
@@ -602,53 +566,22 @@
     flex-shrink: 0;
   }
 
-  /* Pill tabs */
-  .tabs {
-    display: flex;
-    gap: 2px;
+  /* Layout toggle button (row/column for panes) */
+  .layout-toggle {
+    width: 28px;
+    height: 26px;
+    padding: 0;
     background: var(--bg);
-    padding: 2px;
-    border-radius: var(--r-md);
     border: 1px solid var(--border);
-  }
-  .pill {
-    background: transparent;
-    border: none;
     color: var(--fg-dim);
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 500;
     border-radius: var(--r-sm);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    transition: color var(--t-fast), background var(--t-fast);
-  }
-  .pill:hover:not(.active) { color: var(--fg); background: var(--bg-elev-2); }
-  .pill.active {
-    background: var(--accent-bg-strong);
-    color: var(--accent);
-  }
-  .count {
+    font-size: 14px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 16px;
-    height: 14px;
-    padding: 0 4px;
-    font-size: 9.5px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    background: var(--bg-elev-2);
-    color: var(--fg-dim);
-    border-radius: 7px;
+    cursor: pointer;
   }
-  .pill.active .count { background: var(--accent); color: var(--bg); }
-  .count.pulse { animation: pulse-pop 1.8s ease-in-out infinite; background: var(--accent); color: var(--bg); }
-  @keyframes pulse-pop {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.12); }
-  }
+  .layout-toggle:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
 
   /* Action group */
   .actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
@@ -665,6 +598,22 @@
   }
   .actions .primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
   .actions .primary .plus { font-weight: 400; font-size: 14px; line-height: 1; opacity: 0.9; }
+
+  .actions .secondary {
+    background: transparent;
+    color: var(--fg-dim);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--r-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .actions .secondary:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
+  .actions .secondary .plus { font-weight: 400; font-size: 14px; line-height: 1; opacity: 0.9; }
 
   .icon-btn {
     width: 26px;
