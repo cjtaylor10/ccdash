@@ -116,13 +116,24 @@ function makePaneId(): string {
   return (globalThis.crypto as Crypto).randomUUID();
 }
 
+/** First-launch default: Sessions on the left, Browser on the right.
+ *  Two panes (not one) so new users see their sessions list immediately
+ *  AND have a Browser ready — opening to a single Browser meant new users
+ *  had no obvious way to attach a session. */
+function defaultPanes(): Pane[] {
+  return [
+    { id: makePaneId(), type: 'sessions' },
+    { id: makePaneId(), type: 'browser' },
+  ];
+}
+
 function readPanes(): Pane[] {
   try {
     const raw = localStorage.getItem('ccdash.panes');
-    if (!raw) return [{ id: makePaneId(), type: 'browser' }];
+    if (!raw) return defaultPanes();
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      return [{ id: makePaneId(), type: 'browser' }];
+      return defaultPanes();
     }
     const valid: Pane[] = [];
     for (const p of parsed) {
@@ -135,10 +146,10 @@ function readPanes(): Pane[] {
         valid.push({ id: p.id, type: p.type });
       }
     }
-    if (valid.length === 0) return [{ id: makePaneId(), type: 'browser' }];
+    if (valid.length === 0) return defaultPanes();
     return valid;
   } catch {
-    return [{ id: makePaneId(), type: 'browser' }];
+    return defaultPanes();
   }
 }
 
