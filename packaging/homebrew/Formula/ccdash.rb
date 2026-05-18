@@ -1,12 +1,12 @@
 class Ccdash < Formula
   desc "Local desktop dashboard for managing Claude Code sessions, projects, and ports"
   homepage "https://github.com/cjtaylor10/ccdash"
-  version "1.1.6"
+  version "1.1.7"
 
   # Source-build formula. When precompiled release artifacts are hosted,
   # replace `url` and update `sha256`.
   url "https://github.com/cjtaylor10/ccdash/archive/refs/tags/v#{version}.tar.gz"
-  sha256 "ee30c8f6ad92d49add27607ddf8f605abbf9f41bb553cef380fabf5b2e78fd59"
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
 
   depends_on "rust" => :build

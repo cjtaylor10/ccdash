@@ -7,9 +7,16 @@
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
+  const SKIP_PERMS_KEY = 'ccdash.launchDefaults.skipPerms';
+
+  function readSkipPerms(): boolean {
+    try { return localStorage.getItem(SKIP_PERMS_KEY) === '1'; } catch { return false; }
+  }
+
   let projectId: string | null = null;
   let worktree: string | null = null;
   let command = '';
+  let skipPerms = readSkipPerms();
   let busy = false;
   let errMsg: string | null = null;
   let conflicts: PortConflict[] = [];
@@ -22,9 +29,30 @@
       ?? proj?.worktrees[0]?.branch
       ?? null;
     command = '';
+    skipPerms = readSkipPerms();
     errMsg = null;
     conflicts = [];
     forceToken = null;
+  }
+
+  /** Resolve the actual command string to send to the daemon.
+   *  - Empty command field + skipPerms checked → "claude --dangerously-skip-permissions"
+   *  - Non-empty command starting with "claude" + skipPerms checked → append flag
+   *  - Any other custom command + skipPerms checked → leave alone (user's override wins)
+   */
+  function resolveCommand(): string | undefined {
+    const raw = command.trim();
+    if (!raw) {
+      return skipPerms ? 'claude --dangerously-skip-permissions' : undefined;
+    }
+    if (skipPerms && /^claude(\s|$)/.test(raw) && !/--dangerously-skip-permissions/.test(raw)) {
+      return `${raw} --dangerously-skip-permissions`;
+    }
+    return raw;
+  }
+
+  function onSkipPermsChange() {
+    try { localStorage.setItem(SKIP_PERMS_KEY, skipPerms ? '1' : '0'); } catch {}
   }
 
   $: currentProject = $projects.find((p) => p.id === projectId);
@@ -59,7 +87,7 @@
       await sessionsApi.launch({
         projectId,
         worktree: worktree ?? undefined,
-        command: command.trim() || undefined,
+        command: resolveCommand(),
         forceToken: useForce && forceToken ? forceToken : undefined,
       });
       const { sessions: ss } = await tauri.sessionList();
@@ -119,6 +147,22 @@
             disabled={busy}
           />
           <small>Leave blank to run <code>claude</code>.</small>
+        </label>
+
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            bind:checked={skipPerms}
+            on:change={onSkipPermsChange}
+            disabled={busy}
+          />
+          <span class="checkbox-text">
+            <span class="checkbox-title">Skip permission prompts</span>
+            <small class="warn">
+              Adds <code>--dangerously-skip-permissions</code> — Claude won't ask
+              before running tools (file edits, shell, network). Use with caution.
+            </small>
+          </span>
         </label>
 
         {#if conflicts.length > 0}
@@ -227,6 +271,40 @@
   }
   small { color: var(--fg-mute); font-size: 10.5px; }
   small code { font-family: var(--mono); background: var(--bg-elev-2); padding: 1px 4px; border-radius: 3px; }
+
+  .checkbox-row {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+  }
+  .checkbox-row input[type="checkbox"] {
+    margin-top: 2px;
+    accent-color: var(--state-warn);
+    flex-shrink: 0;
+  }
+  .checkbox-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .checkbox-title {
+    font-size: 12px;
+    color: var(--fg);
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .checkbox-row small.warn {
+    color: var(--state-warn);
+  }
+  .checkbox-row small.warn code {
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--state-warn);
+  }
   .err {
     padding: 9px 12px;
     background: var(--state-error-bg);

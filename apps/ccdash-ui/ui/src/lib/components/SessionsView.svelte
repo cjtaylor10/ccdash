@@ -26,10 +26,21 @@
     : scoped;
 
   function attach(sessionId: string) {
+    // Skip if this exact session is already attached — avoids re-creating the
+    // terminal pane (and dropping scrollback) on row reselection.
+    if (isAttached(sessionId)) return;
     terminalPane.set({
       command: ['tmux', 'attach-session', '-t', sessionId],
       mode: 'live',
     });
+  }
+
+  /** Currently-attached tmux session id, derived from the terminalPane
+   *  command vector — last arg is the `-t <id>` value. */
+  function isAttached(sessionId: string): boolean {
+    const cmd = $terminalPane?.command;
+    if (!cmd || cmd.length < 4) return false;
+    return cmd[0] === 'tmux' && cmd[1] === 'attach-session' && cmd[3] === sessionId;
   }
 
   async function kill(sessionId: string, name: string) {
@@ -96,11 +107,23 @@
       </thead>
       <tbody>
         {#each filtered as s (s.tmux_session_id)}
-          <tr>
+          {@const attached = isAttached(s.tmux_session_id)}
+          <tr
+            class:attached
+            on:click={() => attach(s.tmux_session_id)}
+            on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); attach(s.tmux_session_id); } }}
+            tabindex="0"
+            role="button"
+            aria-label="Attach to session {s.name}"
+            title="Click to attach"
+          >
             <td class="state-col">
               <span class="dot {s.state}" title={s.state}></span>
             </td>
-            <td class="name">{s.name}</td>
+            <td class="name">
+              {s.name}
+              {#if attached}<span class="attached-tag">attached</span>{/if}
+            </td>
             <td class="meta">
               {#if s.project_id}
                 {@const proj = $projects.find((p) => p.id === s.project_id)}
@@ -116,8 +139,7 @@
             <td class="cwd"><code title={s.cwd}>{shortPath(s.cwd)}</code></td>
             <td class="num"><code>{s.pid}</code></td>
             <td class="num tmux-id"><code>{s.tmux_session_id}</code></td>
-            <td class="actions">
-              <button class="btn-action" on:click={() => attach(s.tmux_session_id)}>Attach</button>
+            <td class="actions" on:click|stopPropagation>
               <button
                 class="btn-action danger"
                 on:click={() => kill(s.tmux_session_id, s.name)}
@@ -194,8 +216,33 @@
     padding-bottom: 8px;
   }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tbody tr { transition: background var(--t-fast); }
+  tbody tr {
+    transition: background var(--t-fast);
+    cursor: pointer;
+  }
   tbody tr:hover { background: var(--bg-elev); }
+  tbody tr:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  tbody tr.attached {
+    background: var(--accent-bg);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  tbody tr.attached:hover { background: var(--accent-bg-strong); }
+  .attached-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--accent);
+    color: var(--bg);
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+  }
   .state-col { width: 22px; padding-right: 0; }
   .name { font-weight: 500; }
   .meta { color: var(--fg-dim); }
