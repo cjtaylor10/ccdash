@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { prompts, addPrompt } from '$lib/stores';
+  import { prompts, addPrompt, updatePrompt, deletePrompt } from '$lib/stores';
   import type { Prompt } from '$lib/stores';
+  import { tick } from 'svelte';
 
   let selectedId: string | null = null;
   let query = '';
@@ -16,6 +17,58 @@
   })();
   $: selected = $prompts.find((p) => p.id === selectedId) ?? null;
 
+  let titleBuf = '';
+  let bodyBuf = '';
+  let lastSyncedId: string | null = null;
+
+  $: if (selected && selected.id !== lastSyncedId) {
+    titleBuf = selected.title;
+    bodyBuf = selected.body;
+    lastSyncedId = selected.id;
+  } else if (!selected && lastSyncedId !== null) {
+    titleBuf = '';
+    bodyBuf = '';
+    lastSyncedId = null;
+  }
+
+  $: isDirty =
+    !!selected && (titleBuf !== selected.title || bodyBuf !== selected.body);
+
+  let titleInput: HTMLInputElement | null = null;
+
+  async function focusTitle() {
+    await tick();
+    titleInput?.focus();
+  }
+
+  function saveSelected() {
+    if (!selected || !isDirty) return;
+    updatePrompt(selected.id, { title: titleBuf, body: bodyBuf });
+  }
+
+  function revertSelected() {
+    if (!selected) return;
+    titleBuf = selected.title;
+    bodyBuf = selected.body;
+  }
+
+  function deleteSelected() {
+    if (!selected) return;
+    if (!confirm('Delete prompt?')) return;
+    const id = selected.id;
+    deletePrompt(id);
+    if (selectedId === id) selectedId = null;
+  }
+
+  function onKey(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      saveSelected();
+    } else if (e.key === 'Escape') {
+      revertSelected();
+    }
+  }
+
   function selectPrompt(p: Prompt) {
     selectedId = p.id;
   }
@@ -23,6 +76,7 @@
   function newPrompt() {
     const id = addPrompt();
     selectedId = id;
+    focusTitle();
   }
 </script>
 
@@ -63,7 +117,31 @@
   </aside>
   <section class="editor-pane">
     {#if selected}
-      <div class="placeholder">Editor coming in next task — selected: {selected.title || 'Untitled'}</div>
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div class="editor" on:keydown={onKey} role="form">
+        <label class="field">
+          <span class="field-label">Title</span>
+          <input
+            type="text"
+            bind:value={titleBuf}
+            bind:this={titleInput}
+            placeholder="Prompt title"
+          />
+        </label>
+        <label class="field body-field">
+          <span class="field-label">Body</span>
+          <textarea
+            bind:value={bodyBuf}
+            placeholder="Prompt body — copied to your clipboard when you hit Copy."
+            spellcheck="false"
+          ></textarea>
+        </label>
+        <div class="actions">
+          <button class="copy" disabled title="Wired up in Task 7">Copy</button>
+          <button class="save" on:click={saveSelected} disabled={!isDirty}>Save{isDirty ? ' *' : ''}</button>
+          <button class="delete" on:click={deleteSelected}>Delete</button>
+        </div>
+      </div>
     {:else}
       <div class="placeholder">Select a prompt or click <kbd>+ New</kbd>.</div>
     {/if}
@@ -178,4 +256,70 @@
     font-size: 11px;
     margin: 0 2px;
   }
+  .editor {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 18px;
+    min-height: 0;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--fg-dim);
+    font-weight: 600;
+  }
+  .field input,
+  .field textarea {
+    width: 100%;
+    background: var(--bg-elev);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: var(--sans);
+  }
+  .field input:focus,
+  .field textarea:focus { outline: none; border-color: var(--accent); }
+  .body-field { flex: 1; min-height: 0; }
+  .body-field textarea {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    resize: none;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .actions button {
+    padding: 5px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .actions button:hover:not(:disabled) { background: var(--bg-elev-2); border-color: var(--border-strong); }
+  .actions .copy:not(:disabled) {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+  .actions .delete {
+    color: var(--state-error);
+    border-color: color-mix(in srgb, var(--state-error) 40%, var(--border));
+  }
+  .actions .delete:hover { background: var(--state-error-bg); }
 </style>
