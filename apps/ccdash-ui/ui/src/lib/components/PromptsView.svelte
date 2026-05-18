@@ -2,6 +2,7 @@
   import { prompts, addPrompt, updatePrompt, deletePrompt } from '$lib/stores';
   import type { Prompt } from '$lib/stores';
   import { tick } from 'svelte';
+  import { showToast } from '$lib/toast';
 
   let selectedId: string | null = null;
   let query = '';
@@ -69,6 +70,26 @@
     }
   }
 
+  async function copyToClipboard(body: string) {
+    try {
+      await navigator.clipboard.writeText(body);
+      showToast('Prompt copied to clipboard');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(`Copy failed: ${msg}`, 'err');
+    }
+  }
+
+  function copySelected() {
+    if (!selected) return;
+    void copyToClipboard(selected.body);
+  }
+
+  function copyRow(ev: MouseEvent, body: string) {
+    ev.stopPropagation();
+    void copyToClipboard(body);
+  }
+
   function selectPrompt(p: Prompt) {
     selectedId = p.id;
   }
@@ -110,6 +131,12 @@
             on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPrompt(p); } }}
           >
             <span class="row-title">{p.title || 'Untitled'}</span>
+            <button
+              class="row-copy"
+              on:click={(ev) => copyRow(ev, p.body)}
+              title="Copy body to clipboard"
+              aria-label="Copy {p.title || 'Untitled'} to clipboard"
+            >⎘</button>
           </li>
         {/each}
       </ul>
@@ -137,7 +164,7 @@
           ></textarea>
         </label>
         <div class="actions">
-          <button class="copy" disabled title="Wired up in Task 7">Copy</button>
+          <button class="copy" on:click={copySelected} title="Copy body to clipboard">Copy</button>
           <button class="save" on:click={saveSelected} disabled={!isDirty}>Save{isDirty ? ' *' : ''}</button>
           <button class="delete" on:click={deleteSelected}>Delete</button>
         </div>
@@ -322,4 +349,23 @@
     border-color: color-mix(in srgb, var(--state-error) 40%, var(--border));
   }
   .actions .delete:hover { background: var(--state-error-bg); }
+  .row-copy {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    color: var(--fg-mute);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .list li:hover .row-copy { border-color: var(--border); color: var(--fg-dim); }
+  .row-copy:hover { background: var(--bg-elev-2); color: var(--fg) !important; border-color: var(--border-strong) !important; }
+  .list li.active .row-copy { color: var(--accent); border-color: transparent; }
 </style>
