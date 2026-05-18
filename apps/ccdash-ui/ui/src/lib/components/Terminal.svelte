@@ -102,12 +102,23 @@
     });
 
     // Track parent size changes (splitter drag, sidebar collapse, etc.)
-    // and re-fit. ResizeObserver fires for both width and height changes,
-    // including the visibility→visible transition once layout settles.
-    const ro = new ResizeObserver(() => refit());
+    // and re-fit. ResizeObserver can fire many times per second during a
+    // splitter drag — coalesce to one refit per animation frame so we
+    // don't flood the daemon with terminal.resize IPC calls (which
+    // queue + back up otherwise, making drag feel sluggish).
+    let pendingRefit = false;
+    const scheduleRefit = () => {
+      if (pendingRefit) return;
+      pendingRefit = true;
+      requestAnimationFrame(() => {
+        pendingRefit = false;
+        refit();
+      });
+    };
+    const ro = new ResizeObserver(scheduleRefit);
     ro.observe(containerEl);
 
-    const onWinResize = () => refit();
+    const onWinResize = () => scheduleRefit();
     window.addEventListener('resize', onWinResize);
 
     return () => {

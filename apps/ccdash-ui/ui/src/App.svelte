@@ -185,6 +185,9 @@
     });
     watchSystem();
 
+    const onWindowResize = () => { windowHeight = window.innerHeight; };
+    window.addEventListener('resize', onWindowResize);
+
     return () => {
       unlistenDaemon();
       stopPublishing();
@@ -192,6 +195,7 @@
       stopReconnectLoop();
       clearInterval(windowsTimer);
       uninstallKeybinds();
+      window.removeEventListener('resize', onWindowResize);
     };
   });
 
@@ -237,6 +241,11 @@
   function toggleSidebar() {
     sidebarCollapsed.update((v) => !v);
   }
+
+  /** Track the window's inner height reactively so the terminal-panel
+   *  splitter's max can grow when the user resizes the OS window. */
+  let windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+  $: terminalMax = Math.max(200, windowHeight - 160);
 
   $: activeTerminalState = $attachedSessions.find((s) => s.sessionId === $activeTerminalSessionId) ?? null;
 
@@ -391,14 +400,15 @@
           orientation="vertical"
           bind:value={$terminalPanelHeight}
           min={120}
-          max={Math.max(200, window.innerHeight - 200)}
+          max={terminalMax}
           invert
         />
       {/if}
+      {@const clampedHeight = Math.min($terminalPanelHeight, terminalMax)}
       <section
         class="terminal-panel"
         class:collapsed={$terminalCollapsed}
-        style={$terminalCollapsed ? '' : `height: ${$terminalPanelHeight}px;`}
+        style={$terminalCollapsed ? '' : `height: ${clampedHeight}px;`}
       >
         <div class="terminal-header">
           {#if $attachedSessions.length > 1}

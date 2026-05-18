@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/ccdash-core", "crates/ccdash-daemon", "crates/ccdash-cli", "apps/ccdash-ui"]
 
 [workspace.package]
-version = "1.2.1"
+version = "1.2.2"
 edition = "2021"
 rust-version = "1.83"
 license = "MIT"
