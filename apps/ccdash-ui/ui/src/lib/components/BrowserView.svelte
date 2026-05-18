@@ -15,6 +15,8 @@
 
   let errMsg: string | null = null;
 
+  $: hasActiveSubtab = viewSession !== null;
+
   /** Attached sessions that belong to the currently-selected project. When
    *  no project is selected, fall back to every attached session. */
   $: inScopeSessions = (() => {
@@ -162,12 +164,6 @@
   function onAddressKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') go();
   }
-
-  $: contextLabel = (() => {
-    if (viewSession === null) return 'All sessions';
-    const sess = $sessions.find((s) => s.tmux_session_id === viewSession);
-    return sess?.name ?? viewSession;
-  })();
 </script>
 
 <div class="root">
@@ -182,8 +178,9 @@
       on:input={onAddressInput}
       on:keydown={onAddressKeydown}
       placeholder="http://localhost:3000"
+      disabled={!hasActiveSubtab}
     />
-    <button class="go" on:click={go}>Go</button>
+    <button class="go" on:click={go} disabled={!hasActiveSubtab}>Go</button>
     <button class="ext" on:click={external} disabled={!current} title="Open in external browser">↗</button>
     <button class="ext" on:click={snapshot} disabled={!current} title="Screenshot preview to clipboard" aria-label="Screenshot preview">⎙</button>
   </div>
@@ -224,7 +221,7 @@
         <ul>
           {#each sortedUrls as u (u)}
             <li class:active={current === u}>
-              <button on:click={() => navigate(u)}><code>{u}</code></button>
+              <button on:click={() => navigate(u)} disabled={!hasActiveSubtab}><code>{u}</code></button>
             </li>
           {/each}
         </ul>
@@ -238,8 +235,13 @@
         {/key}
       {:else}
         <div class="placeholder">
-          <p>No URL loaded for {contextLabel}.</p>
-          <p>Pick one from the left rail or type an address up top.</p>
+          {#if hasActiveSubtab}
+            <p>No URL loaded for this session.</p>
+            <p>Pick one from the left rail or type an address up top.</p>
+          {:else}
+            <p>No session selected in this project.</p>
+            <p>Launch or attach a session in the sidebar to start browsing.</p>
+          {/if}
         </div>
       {/if}
     </div>
