@@ -986,14 +986,14 @@ git commit -m "feat(ui): copy-to-clipboard on right pane + per-row button"
 **Files:**
 - Modify: `apps/ccdash-ui/ui/src/App.svelte`
 
-- [ ] **Step 1: Import `activeView` and `PromptsView`**
+> **Context for the implementer:** the workspace is no longer pill-tabs (Sessions/Ports/Plans/Browser). The main column now renders `<PaneContainer />` inside `<section class="content">`, with a slim `<header>` above it containing the layout-direction toggle and the actions group. The branch wraps both the `<header>` and the `<section class="content">` so that switching to Prompts hides the workspace chrome entirely. The terminal panel block below stays outside the branch.
 
-In `apps/ccdash-ui/ui/src/App.svelte`, find the existing imports block. Add `activeView` to the import from `$lib/stores`:
+- [ ] **Step 1: Add `activeView` to the `$lib/stores` import**
 
-Locate this import (currently lines 7-26):
+In `apps/ccdash-ui/ui/src/App.svelte`, locate the import block from `$lib/stores` (currently around lines 7-25). It looks like this:
+
 ```ts
   import {
-    activeTab,
     connectError,
     connected,
     mirrorTarget,
@@ -1014,12 +1014,10 @@ Locate this import (currently lines 7-26):
   } from '$lib/stores';
 ```
 
-Add `activeView,` to the list (alphabetical placement, after `activeTerminalSessionId`):
+Add `activeView,` at the top of this list (one new line). After the edit it should read:
 
 ```ts
   import {
-    activeTab,
-    activeTerminalSessionId,
     activeView,
     connectError,
     connected,
@@ -1032,6 +1030,7 @@ Add `activeView,` to the list (alphabetical placement, after `activeTerminalSess
     selectedProjectId,
     sessions,
     attachedSessions,
+    activeTerminalSessionId,
     detectedUrlsBySession,
     terminalCollapsed,
     sidebarWidth,
@@ -1040,45 +1039,44 @@ Add `activeView,` to the list (alphabetical placement, after `activeTerminalSess
   } from '$lib/stores';
 ```
 
-Then add the PromptsView import alongside the other component imports (after `import BrowserView from '$lib/components/BrowserView.svelte';`):
+Do not touch the separate line `import { addPane, paneLayoutDirection } from '$lib/stores';` — it stays as-is.
+
+- [ ] **Step 2: Add the `PromptsView` import**
+
+In the same file, find the line:
+
+```ts
+  import Sidebar from '$lib/components/Sidebar.svelte';
+```
+
+Add immediately below it:
 
 ```ts
   import PromptsView from '$lib/components/PromptsView.svelte';
 ```
 
-- [ ] **Step 2: Branch the main column on `$activeView`**
+- [ ] **Step 3: Branch the workspace header + content on `$activeView`**
 
-In the same file, locate the pill-tabs header + content section block inside `<main>` (currently around lines 356-409, starting with `<header>` after the reconnect-banner and ending with the `</section>` that closes `class="content"`).
-
-Wrap that block in an `{#if $activeView === 'workspace'}` branch and add a `{:else}` arm rendering `<PromptsView />`. Specifically, find this block:
+Locate this block inside `<main>` (currently around lines 337-373, immediately below the `{#if $reconnecting}` reconnect-banner block):
 
 ```svelte
     <header>
-      <div class="tabs" role="tablist">
-        <button class="pill" class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')} role="tab" aria-selected={$activeTab === 'sessions'}>
-          Sessions
-          {#if sessionsCount > 0}<span class="count">{sessionsCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'ports'} on:click={() => setTab('ports')} role="tab" aria-selected={$activeTab === 'ports'}>
-          Ports
-          {#if portsCount > 0}<span class="count">{portsCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'plans'} on:click={() => setTab('plans')} role="tab" aria-selected={$activeTab === 'plans'}>
-          Plans
-          {#if plansCount > 0}<span class="count">{plansCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'browser'} on:click={() => setTab('browser')} role="tab" aria-selected={$activeTab === 'browser'}>
-          Browser
-          {#if totalDetectedUrls > 0}
-            <span class="count" class:pulse={$activeTab !== 'browser'}>{totalDetectedUrls}</span>
-          {/if}
-        </button>
-      </div>
+      <button
+        class="layout-toggle"
+        on:click={() => paneLayoutDirection.update((d) => (d === 'row' ? 'column' : 'row'))}
+        title={$paneLayoutDirection === 'row' ? 'Switch to column layout' : 'Switch to row layout'}
+        aria-label="Toggle pane layout direction"
+      >{$paneLayoutDirection === 'row' ? '⇄' : '⇅'}</button>
       <div class="actions">
         <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
           <span class="plus">+</span> Launch
         </button>
-        <button class="icon-btn" on:click={() => windowsApi.openNew()} title="New window (⌘N)">⊞</button>
+        <button class="secondary" on:click={addPane} title="Add a pane to this window">
+          <span class="plus">+</span> Pane
+        </button>
+        <button class="secondary" on:click={() => windowsApi.openNew()} title="Open a new ccdash window (⌘N)">
+          <span class="plus">+</span> Window
+        </button>
         <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
         {#if $otherWindowList.length > 0}
           <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
@@ -1097,76 +1095,51 @@ Wrap that block in an `{#if $activeView === 'workspace'}` branch and add a `{:el
       </div>
     </header>
     <section class="content">
-      {#if $activeTab === 'sessions'}
-        <SessionsView />
-      {:else if $activeTab === 'ports'}
-        <PortsView />
-      {:else if $activeTab === 'plans'}
-        <PlansView />
-      {:else}
-        <BrowserView />
-      {/if}
+      <PaneContainer />
     </section>
 ```
 
-Wrap it with the branch:
+Wrap the entire block in an `{#if $activeView === 'workspace'} … {:else} <PromptsView /> {/if}` branch. After the edit it should read:
 
 ```svelte
     {#if $activeView === 'workspace'}
-    <header>
-      <div class="tabs" role="tablist">
-        <button class="pill" class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')} role="tab" aria-selected={$activeTab === 'sessions'}>
-          Sessions
-          {#if sessionsCount > 0}<span class="count">{sessionsCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'ports'} on:click={() => setTab('ports')} role="tab" aria-selected={$activeTab === 'ports'}>
-          Ports
-          {#if portsCount > 0}<span class="count">{portsCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'plans'} on:click={() => setTab('plans')} role="tab" aria-selected={$activeTab === 'plans'}>
-          Plans
-          {#if plansCount > 0}<span class="count">{plansCount}</span>{/if}
-        </button>
-        <button class="pill" class:active={$activeTab === 'browser'} on:click={() => setTab('browser')} role="tab" aria-selected={$activeTab === 'browser'}>
-          Browser
-          {#if totalDetectedUrls > 0}
-            <span class="count" class:pulse={$activeTab !== 'browser'}>{totalDetectedUrls}</span>
+      <header>
+        <button
+          class="layout-toggle"
+          on:click={() => paneLayoutDirection.update((d) => (d === 'row' ? 'column' : 'row'))}
+          title={$paneLayoutDirection === 'row' ? 'Switch to column layout' : 'Switch to row layout'}
+          aria-label="Toggle pane layout direction"
+        >{$paneLayoutDirection === 'row' ? '⇄' : '⇅'}</button>
+        <div class="actions">
+          <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
+            <span class="plus">+</span> Launch
+          </button>
+          <button class="secondary" on:click={addPane} title="Add a pane to this window">
+            <span class="plus">+</span> Pane
+          </button>
+          <button class="secondary" on:click={() => windowsApi.openNew()} title="Open a new ccdash window (⌘N)">
+            <span class="plus">+</span> Window
+          </button>
+          <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
+          {#if $otherWindowList.length > 0}
+            <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
+              <option value="">independent</option>
+              {#each $otherWindowList as w (w)}
+                <option value={w}>follow {w}</option>
+              {/each}
+            </select>
           {/if}
-        </button>
-      </div>
-      <div class="actions">
-        <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
-          <span class="plus">+</span> Launch
-        </button>
-        <button class="icon-btn" on:click={() => windowsApi.openNew()} title="New window (⌘N)">⊞</button>
-        <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
-        {#if $otherWindowList.length > 0}
-          <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
-            <option value="">independent</option>
-            {#each $otherWindowList as w (w)}
-              <option value={w}>follow {w}</option>
-            {/each}
+          <select class="theme-select" value={$theme} on:change={onThemeChange} title="Theme">
+            <option value="system">auto</option>
+            <option value="dark">dark</option>
+            <option value="light">light</option>
           </select>
-        {/if}
-        <select class="theme-select" value={$theme} on:change={onThemeChange} title="Theme">
-          <option value="system">auto</option>
-          <option value="dark">dark</option>
-          <option value="light">light</option>
-        </select>
-        <span class="health health-{healthColor}" title={healthTitle} aria-label={healthTitle}></span>
-      </div>
-    </header>
-    <section class="content">
-      {#if $activeTab === 'sessions'}
-        <SessionsView />
-      {:else if $activeTab === 'ports'}
-        <PortsView />
-      {:else if $activeTab === 'plans'}
-        <PlansView />
-      {:else}
-        <BrowserView />
-      {/if}
-    </section>
+          <span class="health health-{healthColor}" title={healthTitle} aria-label={healthTitle}></span>
+        </div>
+      </header>
+      <section class="content">
+        <PaneContainer />
+      </section>
     {:else}
       <PromptsView />
     {/if}
@@ -1221,7 +1194,7 @@ Confirm each item visually / by interaction:
 
 1. **Sidebar shape:** top header has only the `‹` collapse button. Below it, the Workspace / Prompts nav block (Workspace highlighted). Below that, the "PROJECTS" mini-header with the `+` button. Below that, the projects list. All existing project interactions (drag-reorder, right-click → remove, expand chevron, click-to-select) still work.
 
-2. **Switch to Prompts:** click `📝 Prompts`. The pill-tabs header and Sessions/Ports/Plans/Browser content disappear; PromptsView appears in their place. The terminal panel at the bottom (if a session is attached) stays mounted.
+2. **Switch to Prompts:** click `📝 Prompts`. The workspace header (layout-toggle + actions row) and `<PaneContainer />` disappear; PromptsView appears in their place. The terminal panel at the bottom (if a session is attached) stays mounted.
 
 3. **Add three prompts:** click `+ New` three times. Each adds a row labeled "Untitled" at the top of the list and selects it. Type a unique title and body for each. Click `Save` after each — the asterisk on the Save button vanishes when the buffer matches the stored copy.
 
@@ -1241,7 +1214,7 @@ Confirm each item visually / by interaction:
 
 11. **Sidebar collapse:** click the `‹` button. The entire sidebar (nav + projects + everything) hides; the floating `☰` appears. Click it — sidebar reappears with state intact.
 
-12. **Workspace return:** click `📁 Workspace`. The pill-tabs header and last-active tab content reappear. The pill-tab that was active before the Prompts switch is restored.
+12. **Workspace return:** click `📁 Workspace`. The workspace header (layout-toggle + actions) reappears and `<PaneContainer />` is mounted again with the panes in the layout they had before the switch (the `panes` store is persisted, so the same pane shape comes back).
 
 - [ ] **Step 3: If anything in the acceptance list fails — file the failure as a fix-up task and address it before declaring complete.**
 
