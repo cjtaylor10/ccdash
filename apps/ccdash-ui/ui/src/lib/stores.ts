@@ -13,8 +13,6 @@ export const ports = writable<{ running: PortBinding[]; declared: DeclaredPort[]
 });
 export const plans = writable<Plan[]>([]);
 
-export const activeTab = writable<'sessions' | 'ports' | 'plans' | 'browser'>('sessions');
-
 /** Loopback URLs detected from terminal output, grouped by the tmux session
  *  id that emitted them. A `null` key collects URLs derived from the
  *  machine-wide port scan (no session affiliation). BrowserView merges the

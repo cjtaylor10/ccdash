@@ -1,7 +1,6 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
   import {
-    activeTab,
     activeTerminalSessionId,
     attachedSessions,
     projects,
@@ -89,9 +88,6 @@
       ]);
     }
     activeTerminalSessionId.set(sessionId);
-    // Auto-switch the main view to Sessions so the terminal panel + the row
-    // selection are both visible.
-    activeTab.set('sessions');
   }
 
   function select(id: string) {

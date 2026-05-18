@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, tick } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { activeTab, projects, selectedProjectId } from '$lib/stores';
+  import { projects, selectedProjectId } from '$lib/stores';
   import { windows as windowsApi } from '$lib/tauri';
   import { addProjectViaPicker } from '$lib/projectActions';
 
@@ -45,10 +45,6 @@
       },
       { id: 'new-win', label: 'New window', run: async () => { try { await windowsApi.openNew(); } catch {} } },
       { id: 'close-win', label: 'Close window', run: async () => { try { await getCurrentWindow().close(); } catch {} } },
-      { id: 'tab-sessions', label: 'Go to: Sessions', run: () => activeTab.set('sessions') },
-      { id: 'tab-ports', label: 'Go to: Ports', run: () => activeTab.set('ports') },
-      { id: 'tab-plans', label: 'Go to: Plans', run: () => activeTab.set('plans') },
-      { id: 'tab-browser', label: 'Go to: Browser', run: () => activeTab.set('browser') },
     );
     if (!q.trim()) return list;
     const needle = q.toLowerCase();
