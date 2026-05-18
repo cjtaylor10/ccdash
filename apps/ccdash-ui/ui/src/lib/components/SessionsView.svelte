@@ -31,6 +31,27 @@
       })
     : scoped;
 
+  /** When no project is selected, group the filtered list by project so
+   *  the user sees a categorized view of every session at once. Each group
+   *  is sorted by project order; the "no project" bucket goes last. */
+  $: groups = (() => {
+    if ($selectedProjectId) return null;
+    const byProject = new Map<string | null, typeof $sessions>();
+    for (const s of filtered) {
+      const key = s.project_id ?? null;
+      if (!byProject.has(key)) byProject.set(key, [] as typeof $sessions);
+      byProject.get(key)!.push(s);
+    }
+    const ordered: Array<{ projectId: string | null; name: string; sessions: typeof $sessions }> = [];
+    for (const p of $projects) {
+      const list = byProject.get(p.id);
+      if (list && list.length > 0) ordered.push({ projectId: p.id, name: p.name, sessions: list });
+    }
+    const orphans = byProject.get(null);
+    if (orphans && orphans.length > 0) ordered.push({ projectId: null, name: '(no project)', sessions: orphans });
+    return ordered;
+  })();
+
   /** Add the session to the attached set if absent, and make it the
    *  active terminal. If it's already attached, just switch to it —
    *  instant, no pty respawn, no scrollback loss. */
@@ -100,6 +121,61 @@
     </div>
   {/if}
 
+  {#snippet headerRow()}
+    <tr>
+      <th class="state-col"></th>
+      <th>Name</th>
+      <th>Project · worktree</th>
+      <th>cwd</th>
+      <th class="num">pid</th>
+      <th class="num" title="Tmux session ID — stable across renames">Tmux ID</th>
+      <th></th>
+    </tr>
+  {/snippet}
+
+  {#snippet sessionRow(s)}
+    {@const attached = isAttached(s.tmux_session_id)}
+    <tr
+      class:attached
+      on:click={() => attach(s.tmux_session_id)}
+      on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); attach(s.tmux_session_id); } }}
+      tabindex="0"
+      role="button"
+      aria-label="Attach to session {s.name}"
+      title="Click to attach"
+    >
+      <td class="state-col">
+        <span class="dot {s.state}" title={s.state}></span>
+      </td>
+      <td class="name">
+        {s.name}
+        {#if attached}<span class="attached-tag">attached</span>{/if}
+      </td>
+      <td class="meta">
+        {#if s.project_id}
+          {@const proj = $projects.find((p) => p.id === s.project_id)}
+          {#if proj}
+            <span class="proj">{proj.name}</span>
+          {/if}
+        {/if}
+        {#if s.worktree}
+          <span class="sep">·</span>
+          <code>{s.worktree}</code>
+        {/if}
+      </td>
+      <td class="cwd"><code title={s.cwd}>{shortPath(s.cwd)}</code></td>
+      <td class="num"><code>{s.pid}</code></td>
+      <td class="num tmux-id"><code>{s.tmux_session_id}</code></td>
+      <td class="actions" on:click|stopPropagation>
+        <button
+          class="btn-action danger"
+          on:click={() => kill(s.tmux_session_id, s.name)}
+          disabled={busy[s.tmux_session_id]}
+        >{busy[s.tmux_session_id] ? '…' : 'Kill'}</button>
+      </td>
+    </tr>
+  {/snippet}
+
   {#if filtered.length === 0}
     <div class="empty-pad">
       {#if query.trim()}
@@ -108,61 +184,31 @@
         No sessions{$selectedProjectId ? ' for the selected project' : ''}. Press <kbd>⌘L</kbd> to launch one.
       {/if}
     </div>
+  {:else if groups}
+    <!-- No project selected → grouped-by-project view. -->
+    {#each groups as g (g.projectId ?? '__none__')}
+      <div class="group">
+        <div class="group-header">
+          <span class="group-name">{g.name}</span>
+          <span class="group-count">{g.sessions.length} session{g.sessions.length === 1 ? '' : 's'}</span>
+        </div>
+        <table>
+          <thead>{@render headerRow()}</thead>
+          <tbody>
+            {#each g.sessions as s (s.tmux_session_id)}
+              {@render sessionRow(s)}
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/each}
   {:else}
+    <!-- Project selected → flat filtered list (original behavior). -->
     <table>
-      <thead>
-        <tr>
-          <th class="state-col"></th>
-          <th>Name</th>
-          <th>Project · worktree</th>
-          <th>cwd</th>
-          <th class="num">pid</th>
-          <th class="num" title="Tmux session ID — stable across renames">Tmux ID</th>
-          <th></th>
-        </tr>
-      </thead>
+      <thead>{@render headerRow()}</thead>
       <tbody>
         {#each filtered as s (s.tmux_session_id)}
-          {@const attached = isAttached(s.tmux_session_id)}
-          <tr
-            class:attached
-            on:click={() => attach(s.tmux_session_id)}
-            on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); attach(s.tmux_session_id); } }}
-            tabindex="0"
-            role="button"
-            aria-label="Attach to session {s.name}"
-            title="Click to attach"
-          >
-            <td class="state-col">
-              <span class="dot {s.state}" title={s.state}></span>
-            </td>
-            <td class="name">
-              {s.name}
-              {#if attached}<span class="attached-tag">attached</span>{/if}
-            </td>
-            <td class="meta">
-              {#if s.project_id}
-                {@const proj = $projects.find((p) => p.id === s.project_id)}
-                {#if proj}
-                  <span class="proj">{proj.name}</span>
-                {/if}
-              {/if}
-              {#if s.worktree}
-                <span class="sep">·</span>
-                <code>{s.worktree}</code>
-              {/if}
-            </td>
-            <td class="cwd"><code title={s.cwd}>{shortPath(s.cwd)}</code></td>
-            <td class="num"><code>{s.pid}</code></td>
-            <td class="num tmux-id"><code>{s.tmux_session_id}</code></td>
-            <td class="actions" on:click|stopPropagation>
-              <button
-                class="btn-action danger"
-                on:click={() => kill(s.tmux_session_id, s.name)}
-                disabled={busy[s.tmux_session_id]}
-              >{busy[s.tmux_session_id] ? '…' : 'Kill'}</button>
-            </td>
-          </tr>
+          {@render sessionRow(s)}
         {/each}
       </tbody>
     </table>
@@ -177,6 +223,24 @@
     color: var(--state-error);
     border-radius: var(--r-sm);
     font-size: 12px;
+  }
+  .group { margin-bottom: 10px; }
+  .group-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 12px 14px 6px;
+    background: var(--bg);
+  }
+  .group-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .group-count {
+    font-size: 10.5px;
+    color: var(--fg-mute);
+    font-variant-numeric: tabular-nums;
   }
   .search {
     display: flex;

@@ -1,6 +1,13 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
-  import { projects, selectedProjectId } from '$lib/stores';
+  import {
+    activeTab,
+    activeTerminalSessionId,
+    attachedSessions,
+    projects,
+    selectedProjectId,
+    sessions as sessionsStore,
+  } from '$lib/stores';
   import { projectsApi, tauri } from '$lib/tauri';
   import { truncateBranch } from '$lib/format';
 
@@ -13,6 +20,39 @@
 
   let dragId: string | null = null;
   let dragOverId: string | null = null;
+
+  /** Per-project expanded state — defaults to true for the currently-selected
+   *  project so its tree opens automatically. */
+  let expanded: Record<string, boolean> = {};
+  $: if ($selectedProjectId && expanded[$selectedProjectId] === undefined) {
+    expanded[$selectedProjectId] = true;
+  }
+
+  function toggleExpand(id: string, ev: MouseEvent) {
+    ev.stopPropagation();
+    expanded[id] = !expanded[id];
+  }
+
+  function sessionsFor(projectId: string) {
+    return $sessionsStore.filter((s) => s.project_id === projectId);
+  }
+
+  /** Attach (or switch to) a session — same semantics as the SessionsView
+   *  click handler. Centralized here so the sidebar tree and the main view
+   *  share behavior. */
+  function attachSession(sessionId: string) {
+    const already = $attachedSessions.some((s) => s.sessionId === sessionId);
+    if (!already) {
+      attachedSessions.update((arr) => [
+        ...arr,
+        { sessionId, command: ['tmux', 'attach-session', '-t', sessionId] },
+      ]);
+    }
+    activeTerminalSessionId.set(sessionId);
+    // Auto-switch the main view to Sessions so the terminal panel + the row
+    // selection are both visible.
+    activeTab.set('sessions');
+  }
 
   function select(id: string) {
     selectedProjectId.set(id);
@@ -140,6 +180,7 @@
   {/if}
   <ul>
     {#each $projects as p (p.id)}
+      {@const projSessions = sessionsFor(p.id)}
       <li
         class:active={$selectedProjectId === p.id}
         class:drag-over={dragOverId === p.id}
@@ -150,7 +191,22 @@
         on:dragleave={() => onDragLeave(p.id)}
         on:drop={(e) => onDrop(e, p.id)}
       >
-        <button on:click={() => select(p.id)} on:contextmenu={(e) => openMenu(e, p.id)}>
+        <div
+          class="project-row"
+          role="button"
+          tabindex="0"
+          on:click={() => select(p.id)}
+          on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(p.id); } }}
+          on:contextmenu={(e) => openMenu(e, p.id)}
+        >
+          <button
+            type="button"
+            class="expand-chevron"
+            class:open={!!expanded[p.id]}
+            on:click={(e) => toggleExpand(p.id, e)}
+            aria-label={expanded[p.id] ? 'Collapse' : 'Expand'}
+            tabindex="-1"
+          >›</button>
           <span class="badge" style="--h: {hueForId(p.id)}">{initials(p.name)}</span>
           <span class="text">
             <span class="name">{p.name}</span>
@@ -160,19 +216,45 @@
               {:else}
                 <span class="muted">{p.path}</span>
               {/if}
+              {#if projSessions.length > 0}
+                <span class="sep">·</span>
+                <span class="session-count">{projSessions.length} session{projSessions.length === 1 ? '' : 's'}</span>
+              {/if}
             </span>
           </span>
-        </button>
-        {#if $selectedProjectId === p.id && p.worktrees.length > 1}
-          <ul class="worktrees">
-            {#each p.worktrees as wt (wt.path)}
-              <li class:primary={wt.is_primary}>
-                <span class="branch-mark"></span>
-                <code title={wt.branch}>{truncateBranch(wt.branch)}</code>
-                {#if wt.is_primary}<span class="tag">main</span>{/if}
-              </li>
-            {/each}
-          </ul>
+        </div>
+        {#if expanded[p.id]}
+          {#if p.worktrees.length > 1}
+            <ul class="worktrees">
+              {#each p.worktrees as wt (wt.path)}
+                <li class:primary={wt.is_primary}>
+                  <span class="branch-mark"></span>
+                  <code title={wt.branch}>{truncateBranch(wt.branch)}</code>
+                  {#if wt.is_primary}<span class="tag">main</span>{/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          {#if projSessions.length > 0}
+            <ul class="sessions">
+              {#each projSessions as s (s.tmux_session_id)}
+                <li
+                  class:attached={$activeTerminalSessionId === s.tmux_session_id}
+                  on:click|stopPropagation={() => attachSession(s.tmux_session_id)}
+                  on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); attachSession(s.tmux_session_id); } }}
+                  tabindex="0"
+                  role="button"
+                  title="Attach to {s.name}"
+                >
+                  <span class="dot {s.state}"></span>
+                  <span class="sess-name">{s.name}</span>
+                  {#if s.worktree}
+                    <code class="sess-branch">{truncateBranch(s.worktree, 14)}</code>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
         {/if}
       </li>
     {:else}
@@ -239,26 +321,53 @@
   li {
     padding: 0;
   }
-  li > button {
+  .project-row {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 7px;
     width: 100%;
     padding: 7px 12px;
     background: transparent;
-    border: none;
-    border-radius: 0;
     color: var(--fg);
     text-align: left;
     border-left: 2px solid transparent;
+    cursor: pointer;
+    transition: background var(--t-fast);
   }
-  li.active > button {
+  li.active > .project-row {
     background: var(--accent-bg);
     border-left-color: var(--accent);
   }
-  li > button:hover { background: var(--bg-elev-2); }
-  li.dragging > button { opacity: 0.4; }
-  li.drag-over > button { box-shadow: inset 0 2px 0 var(--accent); }
+  .project-row:hover { background: var(--bg-elev-2); }
+  li.dragging > .project-row { opacity: 0.4; }
+  li.drag-over > .project-row { box-shadow: inset 0 2px 0 var(--accent); }
+  .project-row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .expand-chevron {
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    color: var(--fg-mute);
+    font-size: 12px;
+    line-height: 1;
+    transition: transform var(--t-fast), color var(--t-fast);
+    flex-shrink: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .expand-chevron:hover { color: var(--fg); }
+  .expand-chevron.open { transform: rotate(90deg); color: var(--fg-dim); }
+
+  .meta .sep { color: var(--fg-mute); margin: 0 4px; }
+  .meta .session-count { color: var(--state-running); font-weight: 500; }
+
   .badge {
     width: 24px;
     height: 24px;
@@ -335,6 +444,51 @@
     padding: 1px 5px;
     border-radius: 3px;
     margin-left: 2px;
+  }
+
+  /* Sessions list under each project */
+  .sessions {
+    list-style: none;
+    margin: 0 0 6px;
+    padding: 0 12px 4px 46px;
+  }
+  .sessions li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 8px;
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    color: var(--fg-dim);
+    cursor: pointer;
+    transition: background var(--t-fast), color var(--t-fast);
+  }
+  .sessions li:hover { background: var(--bg-elev-2); color: var(--fg); }
+  .sessions li.attached {
+    background: var(--accent-bg);
+    color: var(--accent);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .sessions li.attached:hover { background: var(--accent-bg-strong); }
+  .sessions .sess-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+  .sessions .sess-branch {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--fg-mute);
+    background: var(--bg-elev-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .sessions li.attached .sess-branch {
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--accent);
   }
 
   .empty {

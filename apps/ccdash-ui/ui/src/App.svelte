@@ -19,6 +19,7 @@
     attachedSessions,
     activeTerminalSessionId,
     detectedUrlsBySession,
+    terminalCollapsed,
   } from '$lib/stores';
   import {
     startPublishing,
@@ -48,6 +49,16 @@
   let launchOpen = false;
   let welcomeOpen = false;
   let paletteOpen = false;
+
+  /** If set, this window was opened via `open_terminal_window` to host a
+   *  single popped-out tmux session. Renders the terminal full-screen
+   *  with no sidebar/tabs. The underlying tmux session lives independently
+   *  of this window (and the main one). */
+  let poppedOutSession: string | null = null;
+  try {
+    const term = new URLSearchParams(window.location.search).get('term');
+    if (term) poppedOutSession = term;
+  } catch {}
 
   async function log(msg: string) {
     try {
@@ -119,6 +130,18 @@
       connected.set(true);
       await refreshTopLevel();
       await log('refreshTopLevel done');
+      // If launched as a popped-out terminal window, auto-attach to the
+      // requested session so the user sees the terminal immediately.
+      if (poppedOutSession) {
+        attachedSessions.set([
+          {
+            sessionId: poppedOutSession,
+            command: ['tmux', 'attach-session', '-t', poppedOutSession],
+          },
+        ]);
+        activeTerminalSessionId.set(poppedOutSession);
+        terminalCollapsed.set(false);
+      }
       // First-run check: only on the main window (label "main"); other
       // windows skip the welcome flow to avoid duplicate prompts.
       if (windowsApi.currentLabel() === 'main') {
@@ -188,6 +211,25 @@
     activeTerminalSessionId.set(sessionId);
   }
 
+  /** Pop the active terminal out into its own ccdash window. The session
+   *  in the main window stays attached as well — both windows share the
+   *  underlying tmux session, so what one sees the other sees. Closing
+   *  either window doesn't kill the tmux session (that's what Kill is for). */
+  async function popOutActive() {
+    const sid = $activeTerminalSessionId;
+    if (!sid) return;
+    const sess = $sessions.find((s) => s.tmux_session_id === sid);
+    try {
+      await windowsApi.openTerminal(sid, sess?.name ?? sid);
+    } catch (e) {
+      console.warn('pop-out failed:', e);
+    }
+  }
+
+  function toggleCollapse() {
+    terminalCollapsed.update((v) => !v);
+  }
+
   $: activeTerminalState = $attachedSessions.find((s) => s.sessionId === $activeTerminalSessionId) ?? null;
 
   /** Total URLs detected across all sessions — drives the Browser tab
@@ -218,6 +260,35 @@
   $: plansCount = $plans.length;
 </script>
 
+{#if poppedOutSession}
+  <!-- Popped-out single-session window: render only the terminal full-screen.
+       The session keeps running in tmux regardless of whether this window
+       (or the main one) is closed. -->
+  <div class="popout-root">
+    {#if $attachedSessions.length > 0}
+      {@const t = $attachedSessions[0]}
+      {@const sess = $sessions.find((s) => s.tmux_session_id === t.sessionId)}
+      <header class="popout-header">
+        <span class="popout-title">
+          <span class="dot {sess?.state ?? 'running'}"></span>
+          <span>{sess?.name ?? t.sessionId}</span>
+        </span>
+        <span class="popout-hint">tmux session keeps running if you close this window</span>
+      </header>
+      <div class="popout-term">
+        <Terminal sessionId={t.sessionId} command={t.command} />
+      </div>
+    {:else}
+      <div class="popout-loading">
+        {#if !$connected}
+          Connecting to daemon…
+        {:else}
+          Loading session {poppedOutSession}…
+        {/if}
+      </div>
+    {/if}
+  </div>
+{:else}
 <div class="root">
   <Sidebar />
   <main>
@@ -290,7 +361,7 @@
       {/if}
     </section>
     {#if $attachedSessions.length > 0}
-      <section class="terminal-panel">
+      <section class="terminal-panel" class:collapsed={$terminalCollapsed}>
         <div class="terminal-header">
           {#if $attachedSessions.length > 1}
             <div class="term-tabs">
@@ -309,7 +380,22 @@
           {:else}
             <span>Terminal: <code>{activeTerminalState?.command.join(' ')}</code></span>
           {/if}
-          <button class="close-btn" on:click={closeTerminal} title="Close this terminal">Close</button>
+          <div class="term-actions">
+            <button
+              class="icon-btn"
+              on:click={popOutActive}
+              disabled={!$activeTerminalSessionId}
+              title="Open in a new window (tmux session keeps running everywhere)"
+              aria-label="Pop out"
+            >⤢</button>
+            <button
+              class="icon-btn"
+              on:click={toggleCollapse}
+              title={$terminalCollapsed ? 'Expand terminal pane' : 'Collapse terminal pane (keeps sessions running)'}
+              aria-label={$terminalCollapsed ? 'Expand' : 'Collapse'}
+            >{$terminalCollapsed ? '▴' : '▾'}</button>
+            <button class="close-btn" on:click={closeTerminal} title="Detach (closes view; tmux session keeps running)">Close</button>
+          </div>
         </div>
         <div class="terminal-host">
           <!-- All attached terminals stay mounted; only the active one is
@@ -325,6 +411,7 @@
     {/if}
   </main>
 </div>
+{/if}
 
 <LaunchDialog bind:open={launchOpen} />
 <WelcomeModal bind:open={welcomeOpen} />
@@ -334,6 +421,46 @@
 />
 
 <style>
+  /* Popped-out window mode */
+  .popout-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: #0a0c10;
+  }
+  .popout-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 14px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .popout-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .popout-hint {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: var(--fg-mute);
+    font-style: italic;
+  }
+  .popout-term { flex: 1; overflow: hidden; }
+  .popout-loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+
   .root { display: flex; height: 100vh; background: var(--bg); }
   main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
@@ -542,6 +669,31 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .terminal-panel.collapsed { height: auto; }
+  .terminal-panel.collapsed .terminal-host { display: none; }
+
+  .term-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .term-actions .icon-btn {
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--fg-mute);
+    border-radius: var(--r-sm);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .term-actions .icon-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--border); background: var(--bg-elev-2); }
+  .term-actions .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
   .terminal-host {
     flex: 1;
     overflow: hidden;

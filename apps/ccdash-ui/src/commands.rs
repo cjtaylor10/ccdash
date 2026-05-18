@@ -209,6 +209,15 @@ pub async fn open_new_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_terminal_window(
+    app: tauri::AppHandle,
+    session_id: String,
+    session_name: String,
+) -> Result<(), String> {
+    crate::windows::open_terminal_window(&app, &session_id, &session_name)
+}
+
+#[tauri::command]
 pub async fn list_windows(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     use tauri::Manager;
     Ok(app.webview_windows().into_keys().collect::<Vec<_>>())

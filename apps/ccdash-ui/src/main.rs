@@ -120,6 +120,7 @@ fn main() {
             commands::terminal_resize,
             commands::terminal_close,
             commands::open_new_window,
+            commands::open_terminal_window,
             commands::list_windows,
             commands::publish_window_state,
             commands::log_from_frontend,

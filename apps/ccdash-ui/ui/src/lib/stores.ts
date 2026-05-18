@@ -41,6 +41,16 @@ export const attachedSessions = writable<TerminalPaneState[]>([]);
 /** The currently-visible attached session, or null if no terminal is open. */
 export const activeTerminalSessionId = writable<string | null>(null);
 
+/** Whether the terminal panel is collapsed (header visible, body hidden).
+ *  Persisted to localStorage so it's sticky across launches. */
+function readCollapsed(): boolean {
+  try { return localStorage.getItem('ccdash.terminalCollapsed') === '1'; } catch { return false; }
+}
+export const terminalCollapsed = writable<boolean>(readCollapsed());
+terminalCollapsed.subscribe((v) => {
+  try { localStorage.setItem('ccdash.terminalCollapsed', v ? '1' : '0'); } catch {}
+});
+
 /** Per-session browser state — current URL, history stack, reload counter.
  *  Lets each Claude session keep its own browser viewport instead of
  *  fighting over one shared iframe. */

@@ -104,6 +104,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export const windows = {
   openNew: () => invoke<void>('open_new_window'),
+  /** Pop a tmux session out into its own dedicated window (auto-attaches). */
+  openTerminal: (sessionId: string, sessionName: string) =>
+    invoke<void>('open_terminal_window', { sessionId, sessionName }),
   list: () => invoke<string[]>('list_windows'),
   publishState: (from: string, state: unknown) =>
     invoke<void>('publish_window_state', { from, state }),

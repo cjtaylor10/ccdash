@@ -26,3 +26,4 @@ tracing-subscriber = { workspace = true }
 portable-pty = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }
+urlencoding = "2"
