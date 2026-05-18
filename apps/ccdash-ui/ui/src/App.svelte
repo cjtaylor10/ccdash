@@ -5,6 +5,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { daemonApi, screenshot as screenshotApi, tauri, windows as windowsApi } from '$lib/tauri';
   import {
+    activeView,
     connectError,
     connected,
     mirrorTarget,
@@ -37,6 +38,7 @@
     stopReconnectLoop,
   } from '$lib/reconnect';
   import Sidebar from '$lib/components/Sidebar.svelte';
+  import PromptsView from '$lib/components/PromptsView.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
   import LaunchDialog from '$lib/components/LaunchDialog.svelte';
   import WelcomeModal from '$lib/components/WelcomeModal.svelte';
@@ -334,43 +336,47 @@
         <button class="retry-btn" on:click={retryNow}>Retry now</button>
       </div>
     {/if}
-    <header>
-      <button
-        class="layout-toggle"
-        on:click={() => paneLayoutDirection.update((d) => (d === 'row' ? 'column' : 'row'))}
-        title={$paneLayoutDirection === 'row' ? 'Switch to column layout' : 'Switch to row layout'}
-        aria-label="Toggle pane layout direction"
-      >{$paneLayoutDirection === 'row' ? '⇄' : '⇅'}</button>
-      <div class="actions">
-        <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
-          <span class="plus">+</span> Launch
-        </button>
-        <button class="secondary" on:click={addPane} title="Add a pane to this window">
-          <span class="plus">+</span> Pane
-        </button>
-        <button class="secondary" on:click={() => windowsApi.openNew()} title="Open a new ccdash window (⌘N)">
-          <span class="plus">+</span> Window
-        </button>
-        <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
-        {#if $otherWindowList.length > 0}
-          <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
-            <option value="">independent</option>
-            {#each $otherWindowList as w (w)}
-              <option value={w}>follow {w}</option>
-            {/each}
+    {#if $activeView === 'workspace'}
+      <header>
+        <button
+          class="layout-toggle"
+          on:click={() => paneLayoutDirection.update((d) => (d === 'row' ? 'column' : 'row'))}
+          title={$paneLayoutDirection === 'row' ? 'Switch to column layout' : 'Switch to row layout'}
+          aria-label="Toggle pane layout direction"
+        >{$paneLayoutDirection === 'row' ? '⇄' : '⇅'}</button>
+        <div class="actions">
+          <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
+            <span class="plus">+</span> Launch
+          </button>
+          <button class="secondary" on:click={addPane} title="Add a pane to this window">
+            <span class="plus">+</span> Pane
+          </button>
+          <button class="secondary" on:click={() => windowsApi.openNew()} title="Open a new ccdash window (⌘N)">
+            <span class="plus">+</span> Window
+          </button>
+          <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
+          {#if $otherWindowList.length > 0}
+            <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
+              <option value="">independent</option>
+              {#each $otherWindowList as w (w)}
+                <option value={w}>follow {w}</option>
+              {/each}
+            </select>
+          {/if}
+          <select class="theme-select" value={$theme} on:change={onThemeChange} title="Theme">
+            <option value="system">auto</option>
+            <option value="dark">dark</option>
+            <option value="light">light</option>
           </select>
-        {/if}
-        <select class="theme-select" value={$theme} on:change={onThemeChange} title="Theme">
-          <option value="system">auto</option>
-          <option value="dark">dark</option>
-          <option value="light">light</option>
-        </select>
-        <span class="health health-{healthColor}" title={healthTitle} aria-label={healthTitle}></span>
-      </div>
-    </header>
-    <section class="content">
-      <PaneContainer />
-    </section>
+          <span class="health health-{healthColor}" title={healthTitle} aria-label={healthTitle}></span>
+        </div>
+      </header>
+      <section class="content">
+        <PaneContainer />
+      </section>
+    {:else}
+      <PromptsView />
+    {/if}
     {#if $attachedSessions.length > 0}
       {#if !$terminalCollapsed}
         <Splitter
