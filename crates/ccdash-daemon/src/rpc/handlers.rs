@@ -114,7 +114,7 @@ pub async fn handle_project_remove(
 }
 
 pub async fn handle_session_list(state: &AppState) -> Result<SessionListResult, RpcError> {
-    let (current, removed) = state
+    let (mut current, removed) = state
         .sessions
         .refresh()
         .await
@@ -127,6 +127,37 @@ pub async fn handle_session_list(state: &AppState) -> Result<SessionListResult, 
         state.bus.publish(Event::SessionRemoved {
             tmux_session_id: id.clone(),
         });
+    }
+    // Stamp `project_id` on orphan sessions (those started outside ccdash,
+    // so `sessions.toml` has no metadata for them) by matching their `cwd`
+    // against each project's path and worktree paths. Longest-prefix wins
+    // so a worktree nested inside a parent project isn't stolen by the
+    // parent. With this, the UI's simple `project_id === projectId` filter
+    // is enough — no inference logic needed on the frontend.
+    let projects = state.projects.list().await;
+    for s in current.iter_mut() {
+        if s.project_id.is_some() {
+            continue;
+        }
+        let mut best: Option<(ProjectId, usize)> = None;
+        for p in &projects {
+            let mut candidates: Vec<&std::path::Path> = Vec::with_capacity(1 + p.worktrees.len());
+            candidates.push(p.path.as_path());
+            for w in &p.worktrees {
+                candidates.push(w.path.as_path());
+            }
+            for c in candidates {
+                if s.cwd.starts_with(c) {
+                    let len = c.as_os_str().len();
+                    if best.as_ref().map(|(_, l)| len > *l).unwrap_or(true) {
+                        best = Some((p.id.clone(), len));
+                    }
+                }
+            }
+        }
+        if let Some((id, _)) = best {
+            s.project_id = Some(id);
+        }
     }
     Ok(SessionListResult { sessions: current })
 }
