@@ -3,32 +3,66 @@
   import { writable } from 'svelte/store';
   import { listen } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
-  import { tauri, windows as windowsApi } from '$lib/tauri';
+  import { daemonApi, screenshot as screenshotApi, tauri, windows as windowsApi } from '$lib/tauri';
   import {
-    activeTab,
+    activeView,
     connectError,
     connected,
     mirrorTarget,
+    nextRetryAt,
     plans,
     ports,
     projects,
+    reconnecting,
     selectedProjectId,
     sessions,
-    terminalPane,
+    attachedSessions,
+    activeTerminalSessionId,
+    detectedUrlsBySession,
+    terminalCollapsed,
+    sidebarWidth,
+    sidebarCollapsed,
+    terminalPanelHeight,
   } from '$lib/stores';
+  import PaneContainer from '$lib/components/PaneContainer.svelte';
+  import { addPane, paneLayoutDirection } from '$lib/stores';
   import {
     startPublishing,
     stopPublishing,
     startMirroring,
     stopMirroring,
   } from '$lib/windowSync';
+  import {
+    startReconnectLoop,
+    retryNow,
+    stopReconnectLoop,
+  } from '$lib/reconnect';
   import Sidebar from '$lib/components/Sidebar.svelte';
-  import SessionsView from '$lib/components/SessionsView.svelte';
-  import PortsView from '$lib/components/PortsView.svelte';
-  import PlansView from '$lib/components/PlansView.svelte';
+  import PromptsView from '$lib/components/PromptsView.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
+  import LaunchDialog from '$lib/components/LaunchDialog.svelte';
+  import WelcomeModal from '$lib/components/WelcomeModal.svelte';
+  import CommandPalette from '$lib/components/CommandPalette.svelte';
+  import Splitter from '$lib/components/Splitter.svelte';
+  import { installKeybinds } from '$lib/keybinds';
+  import { theme, watchSystem, type Theme } from '$lib/theme';
+  import { toast, showToast } from '$lib/toast';
 
   const otherWindowList = writable<string[]>([]);
+
+  let launchOpen = false;
+  let welcomeOpen = false;
+  let paletteOpen = false;
+
+  /** If set, this window was opened via `open_terminal_window` to host a
+   *  single popped-out tmux session. Renders the terminal full-screen
+   *  with no sidebar/tabs. The underlying tmux session lives independently
+   *  of this window (and the main one). */
+  let poppedOutSession: string | null = null;
+  try {
+    const term = new URLSearchParams(window.location.search).get('term');
+    if (term) poppedOutSession = term;
+  } catch {}
 
   async function log(msg: string) {
     try {
@@ -47,6 +81,20 @@
       sessions.set(ss);
       const ports_ = await tauri.portsList();
       ports.set(ports_);
+      // Feed machine-wide detected URLs (null session key) — every running
+      // TCP listener on a loopback host becomes http://localhost:PORT. The
+      // Terminal component adds per-session URLs scoped to its session id.
+      if (ports_.running.length > 0) {
+        detectedUrlsBySession.update((m) => {
+          const next = new Map(m);
+          const global = new Set(next.get(null) ?? []);
+          for (const p of ports_.running) {
+            global.add(`http://localhost:${p.port}`);
+          }
+          next.set(null, global);
+          return next;
+        });
+      }
     } catch (e) {
       connectError.set(String(e));
     }
@@ -86,9 +134,33 @@
       connected.set(true);
       await refreshTopLevel();
       await log('refreshTopLevel done');
+      // If launched as a popped-out terminal window, auto-attach to the
+      // requested session so the user sees the terminal immediately.
+      if (poppedOutSession) {
+        attachedSessions.set([
+          {
+            sessionId: poppedOutSession,
+            command: ['tmux', 'attach-session', '-t', poppedOutSession],
+          },
+        ]);
+        activeTerminalSessionId.set(poppedOutSession);
+        terminalCollapsed.set(false);
+      }
+      // First-run check: only on the main window (label "main"); other
+      // windows skip the welcome flow to avoid duplicate prompts.
+      if (windowsApi.currentLabel() === 'main') {
+        try {
+          const { pending } = await daemonApi.firstRunStatus();
+          if (pending) welcomeOpen = true;
+        } catch (e) {
+          await log(`first_run_status failed: ${String(e)}`);
+        }
+      }
     } catch (e) {
       await log(`connect/refresh failed: ${String(e)}`);
       connectError.set(String(e));
+      // Kick off auto-reconnect with exponential backoff.
+      startReconnectLoop(refreshTopLevel);
     }
 
     const unlistenDaemon = await listen<{ method: string; params: any }>(
@@ -107,114 +179,610 @@
     await refreshOtherWindows();
     const windowsTimer = window.setInterval(refreshOtherWindows, 5000);
 
+    const uninstallKeybinds = installKeybinds({
+      openCommandPalette: () => (paletteOpen = true),
+      openLaunchDialog: () => (launchOpen = true),
+    });
+    watchSystem();
+
+    const onWindowResize = () => { windowHeight = window.innerHeight; };
+    window.addEventListener('resize', onWindowResize);
+
     return () => {
       unlistenDaemon();
       stopPublishing();
       stopMirroring();
+      stopReconnectLoop();
       clearInterval(windowsTimer);
+      uninstallKeybinds();
+      window.removeEventListener('resize', onWindowResize);
     };
   });
 
-  function setTab(t: 'sessions' | 'ports' | 'plans') {
-    activeTab.set(t);
+  /** Close the currently-active terminal pane: removes it from the
+   *  attachedSessions list (which unmounts its Terminal component +
+   *  closes its pty) and switches to the next attached session if any,
+   *  otherwise hides the panel entirely. */
+  function closeTerminal() {
+    const active = $activeTerminalSessionId;
+    if (!active) return;
+    const remaining = $attachedSessions.filter((s) => s.sessionId !== active);
+    attachedSessions.set(remaining);
+    activeTerminalSessionId.set(remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null);
   }
 
-  function closeTerminal() {
-    terminalPane.set(null);
+  function switchTerminal(sessionId: string) {
+    activeTerminalSessionId.set(sessionId);
   }
+
+  /** Pop the active terminal out into its own ccdash window. The session
+   *  in the main window stays attached as well — both windows share the
+   *  underlying tmux session, so what one sees the other sees. Closing
+   *  either window doesn't kill the tmux session (that's what Kill is for). */
+  async function popOutActive() {
+    const sid = $activeTerminalSessionId;
+    if (!sid) return;
+    const sess = $sessions.find((s) => s.tmux_session_id === sid);
+    try {
+      await windowsApi.openTerminal(sid, sess?.name ?? sid);
+    } catch (e) {
+      console.warn('pop-out failed:', e);
+    }
+  }
+
+  function toggleCollapse() {
+    terminalCollapsed.update((v) => !v);
+  }
+
+  function toggleSidebar() {
+    sidebarCollapsed.update((v) => !v);
+  }
+
+  async function takeWindowScreenshot() {
+    try {
+      await screenshotApi.window();
+      showToast('Screenshot copied to clipboard');
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? (e as { message: string }).message : String(e);
+      await invoke('log_from_frontend', { level: 'error', message: `screenshot_window failed: ${msg}` }).catch(() => {});
+      showToast(`Screenshot failed: ${msg}`, 'err');
+    }
+  }
+
+  /** Track the window's inner height reactively so the terminal-panel
+   *  splitter's max can grow when the user resizes the OS window. */
+  let windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
+  $: terminalMax = Math.max(200, windowHeight - 160);
+
+  $: activeTerminalState = $attachedSessions.find((s) => s.sessionId === $activeTerminalSessionId) ?? null;
 
   function onMirrorChange(e: Event) {
     const v = (e.target as HTMLSelectElement).value;
     if (v) startMirroring(v);
     else stopMirroring();
   }
+
+  function onThemeChange(e: Event) {
+    theme.set((e.target as HTMLSelectElement).value as Theme);
+  }
+
+  $: healthColor =
+    $reconnecting ? 'yellow' : $connected ? 'green' : 'red';
+  $: healthTitle =
+    $reconnecting ? 'Reconnecting…' : $connected ? 'Daemon connected' : 'Daemon disconnected';
 </script>
 
-<div class="root">
-  <Sidebar />
-  <main>
-    <header>
-      <div class="tabs">
-        <button class:active={$activeTab === 'sessions'} on:click={() => setTab('sessions')}>Sessions</button>
-        <button class:active={$activeTab === 'ports'} on:click={() => setTab('ports')}>Ports</button>
-        <button class:active={$activeTab === 'plans'} on:click={() => setTab('plans')}>Plans</button>
+{#if poppedOutSession}
+  <!-- Popped-out single-session window: render only the terminal full-screen.
+       The session keeps running in tmux regardless of whether this window
+       (or the main one) is closed. -->
+  <div class="popout-root">
+    {#if $attachedSessions.length > 0}
+      {@const t = $attachedSessions[0]}
+      {@const sess = $sessions.find((s) => s.tmux_session_id === t.sessionId)}
+      <header class="popout-header">
+        <span class="popout-title">
+          <span class="dot {sess?.state ?? 'running'}"></span>
+          <span>{sess?.name ?? t.sessionId}</span>
+        </span>
+        <span class="popout-hint">tmux session keeps running if you close this window</span>
+      </header>
+      <div class="popout-term">
+        <Terminal sessionId={t.sessionId} command={t.command} visible={true} />
       </div>
-      <div class="actions">
-        <select value={$mirrorTarget ?? ''} on:change={onMirrorChange}>
-          <option value="">— independent —</option>
-          {#each $otherWindowList as w (w)}
-            <option value={w}>follow {w}</option>
-          {/each}
-        </select>
-        <button on:click={() => windowsApi.openNew()}>+ New window</button>
-      </div>
-      <div class="status">
+    {:else}
+      <div class="popout-loading">
         {#if !$connected}
-          <span class="error">{$connectError ?? 'connecting...'}</span>
+          Connecting to daemon…
+        {:else}
+          Loading session {poppedOutSession}…
         {/if}
       </div>
-    </header>
-    <section class="content">
-      {#if $activeTab === 'sessions'}
-        <SessionsView />
-      {:else if $activeTab === 'ports'}
-        <PortsView />
-      {:else}
-        <PlansView />
+    {/if}
+  </div>
+{:else}
+<div class="root">
+  {#if !$sidebarCollapsed}
+    <div class="sidebar-wrap" style="width: {$sidebarWidth}px;">
+      <Sidebar onCollapse={toggleSidebar} />
+    </div>
+    <Splitter
+      orientation="horizontal"
+      bind:value={$sidebarWidth}
+      min={180}
+      max={500}
+    />
+  {:else}
+    <button
+      class="sidebar-show"
+      on:click={toggleSidebar}
+      title="Show projects sidebar"
+      aria-label="Show sidebar"
+    >☰</button>
+  {/if}
+  <main>
+    {#if $reconnecting}
+      <div class="reconnect-banner">
+        <span class="dot" />
+        <span class="msg">
+          Disconnected from daemon — retrying
+          {#if $nextRetryAt}
+            in {Math.max(0, Math.ceil(($nextRetryAt - Date.now()) / 1000))}s
+          {/if}
+        </span>
+        {#if $connectError}
+          <span class="err">{$connectError}</span>
+        {/if}
+        <button class="retry-btn" on:click={retryNow}>Retry now</button>
+      </div>
+    {/if}
+    {#if $activeView === 'workspace'}
+      <header>
+        <button
+          class="layout-toggle"
+          on:click={() => paneLayoutDirection.update((d) => (d === 'row' ? 'column' : 'row'))}
+          title={$paneLayoutDirection === 'row' ? 'Switch to column layout' : 'Switch to row layout'}
+          aria-label="Toggle pane layout direction"
+        >{$paneLayoutDirection === 'row' ? '⇄' : '⇅'}</button>
+        <div class="actions">
+          <button class="primary" on:click={() => (launchOpen = true)} title="Launch session (⌘L)">
+            <span class="plus">+</span> Launch
+          </button>
+          <button class="secondary" on:click={addPane} title="Add a pane to this window">
+            <span class="plus">+</span> Pane
+          </button>
+          <button class="secondary" on:click={() => windowsApi.openNew()} title="Open a new ccdash window (⌘N)">
+            <span class="plus">+</span> Window
+          </button>
+          <button class="icon-btn" on:click={takeWindowScreenshot} title="Screenshot window to clipboard" aria-label="Screenshot window">⎙</button>
+          {#if $otherWindowList.length > 0}
+            <select value={$mirrorTarget ?? ''} on:change={onMirrorChange} title="Mirror another window">
+              <option value="">independent</option>
+              {#each $otherWindowList as w (w)}
+                <option value={w}>follow {w}</option>
+              {/each}
+            </select>
+          {/if}
+          <select class="theme-select" value={$theme} on:change={onThemeChange} title="Theme">
+            <option value="system">auto</option>
+            <option value="dark">dark</option>
+            <option value="light">light</option>
+          </select>
+          <span class="health health-{healthColor}" title={healthTitle} aria-label={healthTitle}></span>
+        </div>
+      </header>
+      <section class="content">
+        <PaneContainer />
+      </section>
+    {:else}
+      <PromptsView />
+    {/if}
+    {#if $attachedSessions.length > 0}
+      {#if !$terminalCollapsed}
+        <Splitter
+          orientation="vertical"
+          bind:value={$terminalPanelHeight}
+          min={120}
+          max={terminalMax}
+          invert
+        />
       {/if}
-    </section>
-    {#if $terminalPane}
-      <section class="terminal-panel">
+      {@const clampedHeight = Math.min($terminalPanelHeight, terminalMax)}
+      <section
+        class="terminal-panel"
+        class:collapsed={$terminalCollapsed}
+        style={$terminalCollapsed ? '' : `height: ${clampedHeight}px;`}
+      >
         <div class="terminal-header">
-          <span>Terminal: {$terminalPane.command.join(' ')}</span>
-          <button on:click={closeTerminal}>Close</button>
+          {#if $attachedSessions.length > 1}
+            <div class="term-tabs">
+              {#each $attachedSessions as t (t.sessionId)}
+                {@const sess = $sessions.find((s) => s.tmux_session_id === t.sessionId)}
+                <button
+                  class="term-tab"
+                  class:active={t.sessionId === $activeTerminalSessionId}
+                  on:click={() => switchTerminal(t.sessionId)}
+                >
+                  <code>{t.sessionId}</code>
+                  {#if sess}<span class="term-tab-name">{sess.name}</span>{/if}
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <span>Terminal: <code>{activeTerminalState?.command.join(' ')}</code></span>
+          {/if}
+          <div class="term-actions">
+            <button
+              class="icon-btn"
+              on:click={popOutActive}
+              disabled={!$activeTerminalSessionId}
+              title="Open in a new window (tmux session keeps running everywhere)"
+              aria-label="Pop out"
+            >⤢</button>
+            <button
+              class="icon-btn"
+              on:click={toggleCollapse}
+              title={$terminalCollapsed ? 'Expand terminal pane' : 'Collapse terminal pane (keeps sessions running)'}
+              aria-label={$terminalCollapsed ? 'Expand' : 'Collapse'}
+            >{$terminalCollapsed ? '▴' : '▾'}</button>
+            <button class="close-btn" on:click={closeTerminal} title="Detach (closes view; tmux session keeps running)">Close</button>
+          </div>
         </div>
         <div class="terminal-host">
-          {#key $terminalPane.command.join(' ')}
-            <Terminal command={$terminalPane.command} />
-          {/key}
+          <!-- All attached terminals stay mounted; only the active one is
+               visible. This makes switching instant (no pty respawn or xterm
+               re-init) and preserves scrollback. -->
+          {#each $attachedSessions as t (t.sessionId)}
+            {@const isVisible = t.sessionId === $activeTerminalSessionId && !$terminalCollapsed}
+            <div class="terminal-slot" class:visible={isVisible}>
+              <Terminal sessionId={t.sessionId} command={t.command} visible={isVisible} />
+            </div>
+          {/each}
         </div>
       </section>
     {/if}
   </main>
 </div>
+{/if}
+
+<LaunchDialog bind:open={launchOpen} />
+<WelcomeModal bind:open={welcomeOpen} />
+<CommandPalette
+  bind:open={paletteOpen}
+  on:openLaunchDialog={() => (launchOpen = true)}
+/>
+
+{#if $toast}
+  <div class="toast toast-{$toast.kind}" role="status">{$toast.msg}</div>
+{/if}
 
 <style>
-  .root { display: flex; height: 100vh; }
-  main { flex: 1; display: flex; flex-direction: column; }
+  /* Popped-out window mode */
+  .popout-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: #0a0c10;
+  }
+  .popout-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 14px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .popout-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .popout-hint {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: var(--fg-mute);
+    font-style: italic;
+  }
+  .popout-term { flex: 1; overflow: hidden; }
+  .popout-loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+
+  .root { display: flex; height: 100vh; background: var(--bg); }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .sidebar-wrap {
+    flex-shrink: 0;
+    display: flex;
+    min-width: 0;
+    height: 100vh;
+  }
+  .sidebar-show {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 50;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: var(--bg-elev);
+    color: var(--fg-dim);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+  }
+  .sidebar-show:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
+
+  /* Reconnect banner */
+  .reconnect-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 14px;
+    background: var(--state-warn-bg);
+    border-bottom: 1px solid color-mix(in srgb, var(--state-warn) 30%, transparent);
+    color: var(--state-warn);
+    font-size: 12px;
+  }
+  .reconnect-banner .dot {
+    background: var(--state-warn);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  .reconnect-banner .err {
+    color: var(--state-error);
+    font-family: var(--mono);
+    margin-left: 6px;
+    font-size: 11px;
+  }
+  .reconnect-banner .retry-btn {
+    margin-left: auto;
+    background: var(--state-warn);
+    color: var(--bg);
+    border: none;
+    border-radius: var(--r-sm);
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  /* Top header */
   header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 16px;
+    gap: 10px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-elev);
+    flex-shrink: 0;
   }
-  .tabs { display: flex; gap: 4px; }
-  .tabs button { border-radius: 4px; }
-  .tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
-  .actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
-  .actions select {
-    background: var(--bg-elev);
-    color: var(--fg);
+
+  /* Layout toggle button (row/column for panes) */
+  .layout-toggle {
+    width: 28px;
+    height: 26px;
+    padding: 0;
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px 6px;
-    font-size: 12px;
+    color: var(--fg-dim);
+    border-radius: var(--r-sm);
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
   }
-  .status .error { color: var(--danger); font-size: 12px; }
-  .content { flex: 1; overflow-y: auto; min-height: 200px; }
+  .layout-toggle:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
+
+  /* Action group */
+  .actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+  .actions .primary {
+    background: var(--accent);
+    color: var(--bg);
+    border: 1px solid var(--accent);
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .actions .primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+  .actions .primary .plus { font-weight: 400; font-size: 14px; line-height: 1; opacity: 0.9; }
+
+  .actions .secondary {
+    background: transparent;
+    color: var(--fg-dim);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--r-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .actions .secondary:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
+  .actions .secondary .plus { font-weight: 400; font-size: 14px; line-height: 1; opacity: 0.9; }
+
+  .icon-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--fg-dim);
+  }
+  .icon-btn:hover { color: var(--fg); }
+
+  .actions select {
+    background: var(--bg);
+    color: var(--fg-dim);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .actions select:hover { color: var(--fg); border-color: var(--border-strong); }
+  .actions .theme-select { font-variant-caps: all-small-caps; letter-spacing: 0.5px; }
+
+  /* Health indicator */
+  .health {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-left: 4px;
+    flex-shrink: 0;
+  }
+  .health-green { background: var(--state-running); box-shadow: 0 0 0 2px var(--state-running-bg); }
+  .health-yellow { background: var(--state-warn); animation: blink 1.2s ease-in-out infinite; }
+  .health-red { background: var(--state-error); box-shadow: 0 0 0 2px var(--state-error-bg); }
+
+  /* Content + terminal panel */
+  .content { flex: 1; overflow-y: auto; min-height: 0; }
   .terminal-panel {
-    height: 340px;
+    /* height set inline from $terminalPanelHeight when expanded */
     border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    background: #1a1b1e;
+    background: #0a0c10;
+    flex-shrink: 0;
+    min-height: 60px;
   }
   .terminal-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border);
-    font-family: var(--mono); font-size: 12px; color: var(--fg-dim);
+    padding: 4px 10px 4px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px; color: var(--fg-dim);
+    gap: 8px;
   }
-  .terminal-host { flex: 1; overflow: hidden; }
+  .terminal-header code { color: var(--fg); }
+  .terminal-header .close-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+  }
+  .term-tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    flex: 1;
+  }
+  .term-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    border-radius: var(--r-sm);
+    padding: 3px 9px;
+    font-size: 11px;
+    font-family: var(--sans);
+    cursor: pointer;
+  }
+  .term-tab code {
+    font-family: var(--mono);
+    color: var(--fg-mute);
+    font-size: 10.5px;
+  }
+  .term-tab:hover { color: var(--fg); border-color: var(--border-strong); background: var(--bg-elev-2); }
+  .term-tab.active {
+    background: var(--accent-bg-strong);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .term-tab.active code { color: var(--accent); }
+  .term-tab-name {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .terminal-panel.collapsed { height: auto; }
+  .terminal-panel.collapsed .terminal-host { display: none; }
+
+  .term-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .term-actions .icon-btn {
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--fg-mute);
+    border-radius: var(--r-sm);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .term-actions .icon-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--border); background: var(--bg-elev-2); }
+  .term-actions .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .terminal-host {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  .terminal-slot {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    /* Stay rendered but moved off-screen so xterm's resize observer fires
+       when we re-show it. visibility: hidden is enough to hide it visually
+       while keeping the element laid out. */
+  }
+  .terminal-slot.visible {
+    visibility: visible;
+    z-index: 1;
+  }
+
+  /* Toast (screenshot feedback) */
+  .toast {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 1000;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: var(--bg-elev-2);
+    color: var(--fg);
+    box-shadow: var(--shadow-sm);
+    animation: toast-in 0.15s ease-out;
+  }
+  .toast-ok { border-color: var(--state-running); }
+  .toast-err {
+    background: var(--state-error-bg);
+    color: var(--state-error);
+    border-color: var(--state-error);
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 </style>

@@ -6,8 +6,11 @@ macOS and Linux.
 ## Prerequisites
 
 - `tmux` (`brew install tmux` / `apt install tmux`)
-- macOS 12+ or a recent Linux distro
-- (Source build only) `rust`, `node`, `pnpm`
+- `lsof` — pre-installed on macOS; on Linux: `apt install lsof` / `dnf install lsof`
+- macOS 12+ or a recent Linux distro (Ubuntu 22.04+ verified)
+- (Source build only) `rust` (1.83+), `node`, `pnpm`
+- (Source build, UI bundle, Linux only) `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
+  `libayatana-appindicator3-dev`, `librsvg2-dev`, `libsoup-3.0-dev`
 
 ## Install via Homebrew (recommended)
 
@@ -77,8 +80,27 @@ initializes (sandbox error 159).
 - macOS logs: `~/Library/Logs/ccdash/`
 - Linux logs: `journalctl --user -u ccdash-daemon`
 
+## Linux notes
+
+- The `ccdash` and `ccdash-daemon` Rust binaries build clean on Ubuntu
+  22.04 LTS. Verified via `packaging/linux/Dockerfile.test` (the
+  `daemon-only` build target runs full `cargo fmt --check`, `cargo
+  clippy -D warnings`, and `cargo test` against the daemon + CLI + core
+  crates).
+- The full Tauri app bundle (`ccdash-ui`) requires `libwebkit2gtk-4.1`
+  + GTK system dev libraries on Linux; see the prereqs above. The
+  `full` Dockerfile target in `packaging/linux/Dockerfile.test`
+  exercises that path.
+- `lsof` is a hard runtime dep (used to detect listening TCP ports for
+  conflict prevention). The Homebrew formula declares it as a
+  `depends_on "lsof"` on Linux; macOS uses the system-shipped binary.
+- `brew services start` is macOS-only. On Linux, use the systemd user
+  unit installed by `packaging/scripts/install-service.sh`:
+  `systemctl --user enable --now ccdash-daemon.service`.
+
 ## Notes
 
-- v0.1.0 is unsigned. macOS may prompt "unidentified developer" on first launch —
-  right-click → Open to accept.
-- v0.1.0 supports macOS + Linux. Windows is not supported in this release.
+- ccdash is currently ad-hoc-signed on macOS. macOS may prompt
+  "unidentified developer" on first launch — right-click → Open to
+  accept. Real Apple Developer signing is planned for a later release.
+- ccdash supports macOS + Linux. Windows is not supported.

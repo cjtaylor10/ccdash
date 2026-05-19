@@ -1,18 +1,23 @@
 class Ccdash < Formula
   desc "Local desktop dashboard for managing Claude Code sessions, projects, and ports"
   homepage "https://github.com/cjtaylor10/ccdash"
-  version "0.1.4"
+  version "1.2.3"
 
   # Source-build formula. When precompiled release artifacts are hosted,
   # replace `url` and update `sha256`.
   url "https://github.com/cjtaylor10/ccdash/archive/refs/tags/v#{version}.tar.gz"
-  sha256 "b49e3beea9644fa23772ba78ef9d6716018b66825d87deb9a8a9061f6bfdb962"
+  sha256 "01c61d6f7abf1298ef1600f01e4d4989077846f01d0d60e1cd9e592d884670a8"
   license "MIT"
 
   depends_on "rust" => :build
   depends_on "node" => :build
   depends_on "pnpm" => :build
   depends_on "tmux"
+
+  on_linux do
+    # macOS ships lsof in /usr/sbin; Linux needs the package.
+    depends_on "lsof"
+  end
 
   # Tauri 2 CLI is installed as a Rust binary; the formula installs it locally
   # at build time via `cargo install tauri-cli` if it isn't already on PATH.
@@ -72,6 +77,10 @@ class Ccdash < Formula
     keep_alive true
     log_path var/"log/ccdash/daemon.out.log"
     error_log_path var/"log/ccdash/daemon.err.log"
+    # launchd / systemd default PATH is minimal — must include HOMEBREW_PREFIX/bin
+    # so the daemon can spawn `tmux` (and on Linux, `lsof`) regardless of how it
+    # was started.
+    environment_variables PATH: "#{HOMEBREW_PREFIX}/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
   end
 
   def post_install

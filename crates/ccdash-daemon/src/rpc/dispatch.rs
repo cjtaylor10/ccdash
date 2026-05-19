@@ -77,6 +77,17 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
                 Err(e) => Response::err(id, e),
             }
         }
+        "project.reorder" => {
+            let params: ccdash_core::protocol::ProjectReorderParams =
+                match serde_json::from_value(req.params) {
+                    Ok(p) => p,
+                    Err(e) => return Response::err(id, err(E_INVALID_PARAMS, e.to_string())),
+                };
+            match handlers::handle_project_reorder(params, state).await {
+                Ok(()) => Response::ok(id, json!({"ok": true})),
+                Err(e) => Response::err(id, e),
+            }
+        }
         "project.remove" => {
             let params: ProjectRemoveParams = match serde_json::from_value(req.params) {
                 Ok(p) => p,
@@ -125,6 +136,23 @@ pub async fn dispatch(req: Request, state: &AppState, ctx: &Arc<RwLock<ConnConte
                 Ok(r) => Response::ok(id, serde_json::to_value(r).unwrap()),
                 Err(e) => Response::err(id, e),
             }
+        }
+        "daemon.first_run_status" => {
+            let r = handlers::handle_first_run_status(state).await;
+            Response::ok(id, serde_json::to_value(r).unwrap())
+        }
+        "daemon.first_run_complete" => {
+            handlers::handle_first_run_complete(state).await;
+            Response::ok(id, json!({"ok": true}))
+        }
+        "daemon.scan_paths" => {
+            let params: ccdash_core::protocol::ScanPathsParams =
+                match serde_json::from_value(req.params) {
+                    Ok(p) => p,
+                    Err(e) => return Response::err(id, err(E_INVALID_PARAMS, e.to_string())),
+                };
+            let r = handlers::handle_scan_paths(params, state).await;
+            Response::ok(id, serde_json::to_value(r).unwrap())
         }
         other => Response::err(id, err(-32601, format!("method not found: {}", other))),
     }

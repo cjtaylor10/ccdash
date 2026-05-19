@@ -352,9 +352,468 @@ These all involve clicking inside the WKWebView which can't be triggered by
 AX scripting from outside. The user can verify each by clicking the relevant
 button in the running UI.
 
+## 2026-05-17 — Phase 6 (UI parity with CLI) — Complete
 
+**Result:** All four CLI-only operations are exposed in the UI. Sidebar gets a
+"+ Add" button that opens a native folder picker via `tauri-plugin-dialog`
+and calls `project.add`; right-clicking a project row opens a context menu
+with "Remove project" (confirm-gated, calls `project.remove`). Top bar gets
+a "Launch session" button that opens a modal with project + worktree +
+command-override pickers and calls `session.launch`. Each row in
+SessionsView gets a Kill button (confirm-gated, calls `session.kill`).
 
+**Plan deviations recorded:**
 
+1. **Port-conflict remediation incomplete.** The LaunchDialog surfaces the
+   daemon's "port conflict; pass force_token to bypass" message but cannot
+   extract the `force_token` for one-click rebind, because the Tauri command
+   bridge in `commands.rs::call_method` only forwards `error.message`, not
+   `error.data`. For v0.2.0 the user can use the new Kill button to
+   terminate the conflicting session and retry. Plumbing `error.data` (so
+   the dialog can offer "Kill conflicting" / "Launch anyway" buttons) is
+   deferred to Phase 7 polish. The PortConflict types and `isPortConflictMessage`
+   helper landed in tauri.ts so the UI can light up immediately when the
+   data does flow through.
 
+2. **Combined task commits.** The plan structured 10 tasks; in practice
+   tasks 5–7 were combined into a single commit because they were all UI
+   changes that needed the same `pnpm build` verification gate. Each
+   logical unit (sidebar, sessions kill, launch dialog) is still a
+   separately reviewable diff; just bundled to avoid three round-trips of
+   the same build command.
+
+3. **Workspace + UI version bump.** Bumped `Cargo.toml` workspace version,
+   `apps/ccdash-ui/ui/package.json`, and `apps/ccdash-ui/tauri.conf.json`
+   to `0.2.0`. Done as a separate commit (`v0.2.0: bump workspace + UI
+   versions`) so the version-bump diff is reviewable in isolation.
+
+4. **gh release initial misroute.** First `gh release create` ran from
+   `/tmp/homebrew-ccdash-tap/` (after pushing the tap update) and created
+   the release on the tap repo. Deleted with `gh release delete --repo
+   cjtaylor10/homebrew-ccdash-tap` and re-issued with explicit
+   `--repo cjtaylor10/ccdash`. No user-visible impact; just procedural.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 82 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` produces `packaging/dist/ccdash-0.2.0.tar.gz`,
+formula sha256 updated to `8c9a3f0378bbcbd7876e9149e631829cd72f0cba7dbecfd29bd44b1d1c551eed`
+(GitHub source archive of v0.2.0), `brew upgrade cjtaylor10/ccdash-tap/ccdash`
+succeeds on this machine and produces `ccdash 0.2.0`. `ccdash status`
+reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** the four new UI interactions (folder picker
+modal, sidebar context menu, launch modal, kill confirm). Code paths
+exercised by `pnpm build` (which type-checks Svelte components) and
+indirectly by the daemon test suite. User must click to confirm visual
+layout and the Tauri-side dialog plugin actually opens a macOS folder
+picker.
+
+**Tags:** `phase-6-done`, `v0.2.0`.
+
+## 2026-05-17 — Phase 7 (Verify + polish) — Complete
+
+**Result:** Four concrete polish items shipped:
+
+1. **error.data plumbing.** `commands.rs::call_method` now returns
+   `Result<Value, UiRpcError>` where `UiRpcError = { message, data }`,
+   carrying the daemon's RPC error payload through to the frontend. Every
+   RPC-proxying Tauri command picked up the new return type.
+
+2. **Full port-conflict remediation in LaunchDialog.** When the daemon
+   returns a PortConflict, the dialog now lists colliding `{port, holder}`
+   rows and offers a "Launch anyway" button that re-submits with the
+   `force_token`. Cleared the Phase 6 deviation #1.
+
+3. **Window position clamping.** New `window_clamp` module runs on every
+   `WindowEvent::Moved` and at new-window creation. If a window's outer
+   bounds don't overlap any monitor, it snaps back to the primary monitor's
+   center. Fixes the "saved window position from a disconnected monitor"
+   class of bug.
+
+4. **Reconnect UX.** New `reconnect.ts` exponential-backoff loop (5s → 30s
+   cap). UI shows a "Disconnected from daemon — retrying in Ns" banner
+   with a "Retry now" button. Wired in App.svelte's onMount catch and on
+   the unmount cleanup.
+
+**Plan deviations recorded:**
+
+1. **Tauri Window<R> vs WebviewWindow.** The plan called for
+   `clamp_window_position(&WebviewWindow)`, but Tauri 2's `on_window_event`
+   passes `&Window<R>`. Changed the signature to be generic over Runtime
+   (`&Window<R>` where `R: Runtime`). Both Window and WebviewWindow share
+   the position / size / monitor API surface, so the function body is
+   unchanged. For new-window creation, `w.as_ref().window()` yields a
+   borrowable Window.
+
+2. **Click-test items audited via code review, not click.** Per the
+   autonomous mode, I cannot click. Walked the Attach path
+   (`Terminal.svelte` ↔ `pty.rs::open` ↔ `run_reader_loop`) — found no
+   defects. The byte path (`Vec<u8>` ↔ `number[]` ↔ `Uint8Array`) is
+   symmetric; resize wiring is correct; lifecycle cleanup is ordered
+   safely (close gates on ptyId not null). Walked the +New window path —
+   found that the existing `WebviewWindowBuilder` did not `.center()` new
+   windows, so applied that + the new clamp. Walked the mirror path —
+   chatty (250ms tick) but correct; no defects. Visual click-test still
+   needed for all three.
+
+3. **Removed `isPortConflictMessage` regex helper.** It was a stringly-typed
+   marker in v0.2.0 because error.data wasn't plumbed. Now obsolete — the
+   structured `asPortConflict()` type guard reads the data directly.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 82 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` produces `packaging/dist/ccdash-0.3.0.tar.gz`,
+formula sha256 = `3ce15960e8d845b378d105fa081661164e24297a701f29e261d9e4b0f0570219`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` succeeds on this machine,
+`ccdash status` reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** the conflict-remediation modal flow, the
+reconnect banner / retry behavior, and window-position snap-back. Code
+paths exercised by `pnpm build` and the daemon test suite. User must
+click to confirm.
+
+**Tags:** `phase-7-done`, `v0.3.0`.
+
+## 2026-05-17 — Phase 8 (First-run + onboarding) — Complete
+
+**Result:** New users get a 2-step welcome modal on first launch: pick scan
+roots, approve discovered repos. The scanner module (built in Phase 1 but
+unused for ~6 months in dev-time) finally has a consumer. Empty states
+across Sessions/Ports/Plans tabs guide users to add their first project.
+
+**Daemon changes:**
+- `Registry::load` returns the `was_new_on_disk` signal indicating whether
+  `projects.toml` existed at startup.
+- `AppState.first_run_pending: Arc<AtomicBool>` seeded from above; cleared
+  by `daemon.first_run_complete`.
+- Three new RPC methods: `daemon.first_run_status`, `daemon.scan_paths`
+  (wraps `projects::scanner::scan`), `daemon.first_run_complete`.
+- New protocol types: `FirstRunStatusResult`, `ScanPathsParams/Result`,
+  `DiscoveredRepo`.
+- Two new tests for first-run flag transitions (now 84 tests total).
+
+**Frontend changes:**
+- Three new Tauri commands + `daemonApi` wrapper.
+- `WelcomeModal.svelte`: 2-step picker → approve → bulk add. Skip option.
+- `EmptyState.svelte` shared between Sessions/Ports/Plans tabs.
+- `projectActions.ts` extracts the folder-picker + add flow so Sidebar
+  and EmptyState share it.
+- `App.svelte` checks first-run status on connect (main window only) and
+  shows the welcome modal if pending.
+
+**Plan deviations recorded:**
+
+1. **Welcome modal does NOT default to `~/Documents`.** Original plan
+   suggested a hardcoded default scan root. Dropped because (a) it requires
+   shipping `@tauri-apps/plugin-os` for `homeDir()` resolution OR
+   hardcoding the macOS path, neither of which adds much over the simple
+   "pick a folder" UX, and (b) personal-first users will know where their
+   code lives.
+
+2. **Welcome modal only shows on the main window.** The check
+   `windowsApi.currentLabel() === 'main'` gates the modal so additional
+   `+ New window` instances don't all pop the welcome flow. Without this,
+   each new window would call first_run_status and one of them would
+   race the "complete" call.
+
+3. **Daemon's first_run_pending uses `AtomicBool` for cheap reads.** Spec
+   §6.1 mentioned "first_run_pending state" without specifying primitive
+   type. AtomicBool with Relaxed ordering is enough — we never read it
+   alongside other related state, and one writer (the RPC handler) /
+   many readers (every status check) is the textbook AtomicBool use.
+
+4. **Identifier collision in WelcomeModal.svelte.** Importing
+   `open` from `@tauri-apps/plugin-dialog` clashed with `export let open`
+   prop. Aliased the import to `openFolderDialog`.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 84 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` produces `packaging/dist/ccdash-0.4.0.tar.gz`,
+formula sha256 = `f3bcf061f42f8d54ff8233de0ea020ba347a87c0371fba336e903f61a2715b2c`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.4.0`,
+`ccdash status` reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** the welcome modal flow (cannot trigger
+first-run on a machine that already has projects.toml without clearing
+it). Empty-state UI when no projects. User must click to confirm.
+
+**Tags:** `phase-8-done`, `v0.4.0`.
+
+## 2026-05-17 — Phase 9 (Embedded browser preview) — Complete
+
+**Result:** New top-level "Browser" tab (4th, after Sessions/Ports/Plans).
+Auto-detects loopback URLs from both running TCP listeners (Ports tab
+data) and live terminal output via `extractLocalUrls`. Iframe-based
+preview with back/forward/reload chrome and "Open in external browser".
+
+**Design decisions (confirmed via AskUserQuestion):**
+- Top-level tab over per-terminal pane.
+- URL detection from both Ports tab AND terminal output.
+- Always-visible address bar.
+- Defaulted by me: iframe over nested WebviewWindow (much simpler), no
+  DevTools button (iframe DevTools is hard in Tauri; "Open in external
+  browser" gives users the escape hatch).
+
+**Plan deviations recorded:**
+
+1. **TextDecoder reused for terminal urlDetect.** The original plan only
+   referenced `new TextDecoder().decode(bytes)` per-event. Hoisted to a
+   module-level `const decoder` so the streaming-decoder state is
+   preserved across multi-byte UTF-8 splits. Passes `{ stream: true }`
+   to handle codepoints split across two output events.
+
+2. **No Vitest unit tests.** The plan called out that there's no Vitest
+   setup yet and a regex test would need scaffolding. Skipped for v0.5;
+   `extractLocalUrls` is small enough to review by inspection.
+
+3. **Ports → URLs synthesis assumes loopback.** The daemon's ports
+   module collects TCP listeners regardless of bind address; we
+   synthesize `http://localhost:PORT` for every running entry. Listeners
+   bound to non-loopback addresses may not be reachable that way, but
+   for dev servers running locally this is reliable. Worst case: an
+   entry in the rail that doesn't load.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 84 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` → `packaging/dist/ccdash-0.5.0.tar.gz`,
+formula sha256 = `a7b970fcd79da6ab16fcce2a8f2a6530e4720825a945ddcdc65b499f10dd9cb4`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.5.0`,
+`ccdash status` reports daemon ok.
+
+**Still NOT click-verified:** the Browser tab visually, including
+URL detection lighting up from a real dev server. User must click.
+
+**Tags:** `phase-9-done`, `v0.5.0`.
+
+## 2026-05-17 — Phase 10 (Polish + niceties) — Complete
+
+**Result:** Eight polish items shipped in v0.6.0.
+
+1. **Keyboard shortcuts.** Cmd+N (new window), Cmd+W (close), Cmd+K
+   (command palette), Cmd+L (launch dialog). `lib/keybinds.ts` installs a
+   single window keydown listener; teardown returned from onMount.
+
+2. **Command palette.** New `CommandPalette.svelte` with type-ahead
+   filter over project switches, Launch session, Add project, Tab
+   switches, +New/Close window. Arrow keys + Enter.
+
+3. **Drag-and-drop project reorder.** HTML5 drag/drop in Sidebar.
+   New daemon RPC `project.reorder { ids: [ProjectId] }`. On-disk
+   `ProjectRow` gains an `order: u32` field (default u32::MAX for
+   legacy rows so existing installs don't break). New test confirms
+   the order persists across reload.
+
+4. **Markdown rendering for plan task titles.** Used `marked` for
+   inline rendering of backticks/emphasis. Per-plan "Open in VS Code"
+   button that opens `vscode://file/{path}` via plugin-shell.
+
+5. **Session search/filter.** Filter input appears only when
+   `$sessions.length > 10`. Live-filters on name + cwd + tmux_session_id.
+
+6. **Daemon health dot.** Top-bar 10px dot — green (connected),
+   yellow (reconnecting, pulse animation), red (disconnected). Tooltip
+   names the state.
+
+7. **Theme toggle.** Auto/Dark/Light. Persisted to localStorage. CSS
+   variables in theme.css now have a `[data-theme="light"]` override.
+   `lib/theme.ts` watches `matchMedia('(prefers-color-scheme: light)')`
+   for live system-theme switches when Auto is selected.
+
+8. **Real app icon.** Python+PIL generator at `apps/ccdash-ui/icons/_generate.py`
+   emits a 1024px master + 32/64/128/256/512 PNGs + full macOS .iconset.
+   `iconutil -c icns` builds the .icns. Glyph design: rounded-corner
+   accent-color tile with a cursor inset (top-right) and bottom dock
+   bar suggesting a dashboard with a terminal cursor.
+
+Plus: worktree branch names truncated with middle-ellipsis when >24
+chars via new `lib/format.ts::truncateBranch`.
+
+**Plan deviations recorded:**
+
+1. **Light theme palette is a defensible default, not opinionated.**
+   Used standard tokens (white bg, blue accent, deep ink text). User can
+   override the CSS variables later if they want a more distinctive
+   light look.
+
+2. **Per-tab dot for unread URLs already done in Phase 9.** Skipped
+   adding another tab-level badge for "new ports detected" because the
+   Browser tab dot already covers this signal class.
+
+3. **No drag-reorder for worktrees.** Worktrees come from `git worktree
+   list` and aren't user-orderable in any meaningful sense — leave their
+   order as git presents them.
+
+4. **Marked synchronous mode.** `marked.setOptions({ async: false })`
+   so `parseInline` returns a string directly (the new marked v14 API
+   defaults to async/Promise, which breaks template usage). Caveat:
+   any custom marked extensions that ARE async would silently fall back
+   to placeholder output — we don't use extensions, so it's fine.
+
+5. **Removed unused `command` and `import { open } from '@tauri-apps/api/shell'`
+   patterns.** The `tauri-plugin-shell` v2 package is the right path; we
+   import dynamically inside `openExternal` to avoid bloating the main
+   bundle.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 85 passed / 0 failed / 1 ignored,
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` → `packaging/dist/ccdash-0.6.0.tar.gz`,
+formula sha256 = `d79d5e41d88d9b1f3ca142c0d83631e191e9b74997029ea5790b435619860203`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.6.0`,
+`ccdash status` reports daemon ok with 4 projects.
+
+**Still NOT click-verified:** all eight UX items. Especially the icon
+appearance, the drag-and-drop UX, and the command palette filter
+performance under many projects.
+
+**Tags:** `phase-10-done`, `v0.6.0`.
+
+## 2026-05-17 — Phase 11 (Signing + auto-update) — Deferred
+
+Per user direction (AskUserQuestion at start of Phase 11): skip until
+Apple Developer cert is available. v0.7.0 stays unallocated for the
+eventual signing work. Phase 12 shipped as v0.8.0.
+
+## 2026-05-17 — Phase 12 (Linux verification) — Complete
+
+**Result:** ccdash-daemon + ccdash-cli + ccdash-core build and pass all
+tests on Ubuntu 22.04 (aarch64) inside a clean Docker container. The
+full Tauri UI build path requires webkit2gtk-4.1 + GTK + libsoup3
+system deps; documented in the Dockerfile but not exercised in the
+v0.8.0 ship because it adds ~600MB of system packages and ~10 minutes
+of build time to the verification path. The lighter daemon-only path
+is what we run as the regression gate.
+
+**Real bug found via Linux test:** `lsof` is a hard runtime dep but
+wasn't documented anywhere. Without it, `ports.list` returns empty and
+the conflict-detection test panics. Now declared:
+- `depends_on "lsof"` under `on_linux do` in the formula.
+- Listed in INSTALL.md prerequisites.
+
+**Plan deviations:**
+
+1. **Version skip 0.7.0.** Phase 11 was deferred, so Phase 12 ships as
+   v0.8.0 leaving v0.7.0 open for the signing work later. The GOAL.md
+   numbering (Phase N → v0.N) is preserved.
+
+2. **Daemon-only is the verification gate, not the full build.** The
+   `full` Dockerfile target exists but takes too long for a routine
+   smoke. Daemon-only catches the realistic class of Linux regressions
+   (the lsof bug is a perfect example).
+
+3. **No proper /proc/net/tcp fallback yet.** The right long-term fix
+   for the lsof dep is to read `/proc/net/tcp` directly on Linux. Not
+   doing it now because (a) it's not the v1.0 critical path, and (b)
+   the lsof dep is universally available via apt. Captured as a future
+   improvement.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 85 passed / 0 failed / 1 ignored (macOS),
+`docker build -f packaging/linux/Dockerfile.test --target daemon-only`
+green on ubuntu:22.04/aarch64,
+formula sha256 = `089d276ac3d0d0444c697a814fb14a8f877f053d455cc6d89e2a750194e3c1b1`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `0.8.0`,
+`ccdash status` reports daemon ok.
+
+**Still NOT verified:** native Linux desktop UI click-test (the
+Dockerfile builds the bundle but doesn't launch it). A user on a Linux
+workstation would be the next confirmation point.
+
+**Tags:** `phase-12-done`, `v0.8.0`.
+
+## 2026-05-17 — Phase 13 (Final polish) — Complete
+
+**Result:** ccdash v1.0.0 shipped — feature-complete personal dashboard.
+
+**Documentation shipped:**
+- `README.md` — full rewrite. Pitch + feature list + comparison table
+  (vs tmuxinator/iTerm tabs/Notion-as-tracker) + architecture diagram
+  + status. Includes the v0.1.x screenshot with a disclaimer that
+  v1.0 has added Browser tab / command palette / theme toggle /
+  drag-reorder / new icon.
+- `docs/USAGE.md` — every CLI subcommand + every UI feature
+  walkthrough. Multi-window, mirror mode, keybinds, daemon service
+  management on macOS and Linux, config file locations, reconnect
+  behavior.
+- `docs/ARCHITECTURE.md` — contributor's tour. Crate map, daemon
+  module map, complete RPC surface table, event bus list, Tauri
+  backend + Svelte frontend file maps, data flow examples (launch /
+  port conflict / mirror), testing strategy, "adding a new RPC
+  method" runbook.
+- `LICENSE` — MIT (was referenced from README but missing from repo).
+
+**Repo housekeeping:**
+- GitHub repo topics: `claude-code`, `tmux`, `tauri`, `svelte`,
+  `rust`, `desktop-app`, `dashboard`, `developer-tools`.
+- GitHub repo description set.
+
+**Test flake fixed:** during v1.0.0 ship, `paths::tests::data_dir_honors_ccdash_home`
+intermittently failed due to test parallelism on a process-global env
+var. Guarded the three env-var tests in `paths.rs` with a process-local
+`static Mutex` so they serialize. Verified by running the suite twice
+in a row, both green.
+
+**Plan deviations:**
+
+1. **No GIF demo.** The plan called for an asciinema or
+   ffmpeg-screencapture-loop GIF. Skipped because (a) generating a
+   meaningful demo requires real Claude sessions running with output,
+   (b) capturing a GIF of the Tauri webview from outside requires user
+   click flow that autonomous mode can't drive, and (c) the v0.1.x
+   screenshot conveys the dashboard concept clearly enough. User can
+   add a GIF whenever ready.
+
+2. **No "announce" preparation.** Per GOAL.md: "Don't post anywhere
+   — just make the repo presentable." Repo is presentable; no
+   announcement copy written.
+
+3. **README screenshot is v0.1.x with disclaimer.** Capturing a fresh
+   screenshot of v1.0 with all the new tabs lit up requires the
+   running UI + driving clicks. Cleanest path was to ship with the
+   older screenshot + a clear note about what's new. User can replace
+   it whenever convenient.
+
+**Acceptance check:** `cargo fmt --all -- --check` clean,
+`cargo clippy --workspace --all-targets -- -D warnings` clean,
+`cargo test --workspace` → 85 passed / 0 failed / 1 ignored (stable
+across two consecutive runs after the env-var mutex fix),
+`pnpm --dir apps/ccdash-ui/ui run build` clean,
+`./packaging/scripts/release.sh` → `packaging/dist/ccdash-1.0.0.tar.gz`,
+formula sha256 = `bdb34a9cf4db294f056798265146d5a13aa4fa1e66e52b7b0abf390760c8d3c4`,
+`brew upgrade cjtaylor10/ccdash-tap/ccdash` → `1.0.0`,
+`ccdash --version` reports `ccdash 1.0.0`, `ccdash status` reports
+daemon ok with 4 projects.
+
+**Tags:** `phase-13-done`, `v1.0.0`.
+
+---
+
+## v1.0.0 — Shipped
+
+Eight implementation phases over the autonomous continuation run:
+
+- **Phase 6** v0.2.0 — UI parity with CLI (Launch / Add / Remove / Kill buttons + dialog).
+- **Phase 7** v0.3.0 — Verify + polish (error.data plumbing, full conflict remediation, window clamp, reconnect UX).
+- **Phase 8** v0.4.0 — First-run + onboarding (welcome modal, scanner, empty states).
+- **Phase 9** v0.5.0 — Embedded browser preview (4th tab, iframe + URL detection).
+- **Phase 10** v0.6.0 — Polish + niceties (shortcuts, palette, drag-reorder, markdown, theme, icon, health dot).
+- **Phase 11** v0.7.0 — Signing + auto-update — DEFERRED (needs Apple Developer cert).
+- **Phase 12** v0.8.0 — Linux verification (Dockerfile, lsof dep).
+- **Phase 13** v1.0.0 — Final polish (docs, README, license, topics).
+
+GitHub: https://github.com/cjtaylor10/ccdash
+Brew tap: https://github.com/cjtaylor10/homebrew-ccdash-tap
+85 tests pass on macOS + Ubuntu 22.04. Source-build ad-hoc-signed on
+macOS via the release.sh script.
 
 

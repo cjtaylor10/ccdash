@@ -1,11 +1,26 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { Terminal as XTerm } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { listen } from '@tauri-apps/api/event';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { terminal } from '$lib/tauri';
+  import { detectedUrlsBySession } from '$lib/stores';
+  import { extractLocalUrls } from '$lib/urlDetect';
   import '@xterm/xterm/css/xterm.css';
+
+  /** Tmux session id this terminal is wrapping (e.g. "$0"). URLs detected
+   *  from this pane's output are recorded against this id so the BrowserView
+   *  can scope its suggestions per session. */
+  export let sessionId: string;
+
+  /** Visibility flag. When this terminal's slot is hidden (Browser tab
+   *  open, or another terminal active), the container can have 0 layout
+   *  size depending on positioning. Re-fit + resize when it flips back to
+   *  visible so tmux gets the correct rows/cols. */
+  export let visible: boolean = true;
+
+  const decoder = new TextDecoder();
 
   export let command: string[];
 
@@ -15,6 +30,30 @@
   let ptyId: string | null = null;
   let unlistenOutput: UnlistenFn | null = null;
   let unlistenEof: UnlistenFn | null = null;
+  let ready = false;
+
+  /** Re-fit the xterm to the current container size and push the new
+   *  rows/cols to tmux. Safe to call repeatedly; bails if not mounted yet
+   *  or the container has zero dimensions (avoids tmux thinking the pane
+   *  is 0x0 during a layout transition). */
+  async function refit() {
+    if (!ready || !xterm || !fit || !containerEl) return;
+    if (containerEl.offsetWidth === 0 || containerEl.offsetHeight === 0) return;
+    try {
+      fit.fit();
+      if (ptyId) {
+        await terminal.resize(ptyId, xterm.rows, xterm.cols);
+      }
+    } catch (e) {
+      console.warn('Terminal refit failed:', e);
+    }
+  }
+
+  // Whenever the parent toggles visible→true, re-fit on the next tick so
+  // the container has its final layout dimensions before measurement.
+  $: if (visible && ready) {
+    tick().then(refit);
+  }
 
   onMount(async () => {
     if (!containerEl) return;
@@ -31,10 +70,24 @@
 
     const { rows, cols } = xterm;
     ptyId = await terminal.open(command, rows, cols);
+    ready = true;
 
     unlistenOutput = await listen<number[]>(`terminal-output::${ptyId}`, (e) => {
       const bytes = new Uint8Array(e.payload);
       xterm!.write(bytes);
+      // Scan for loopback URLs and surface them to the Browser tab,
+      // scoped to this session's id.
+      const text = decoder.decode(bytes, { stream: true });
+      const urls = extractLocalUrls(text);
+      if (urls.length > 0) {
+        detectedUrlsBySession.update((m) => {
+          const next = new Map(m);
+          const set = new Set(next.get(sessionId) ?? []);
+          for (const u of urls) set.add(u);
+          next.set(sessionId, set);
+          return next;
+        });
+      }
     });
     unlistenEof = await listen(`terminal-eof::${ptyId}`, () => {
       xterm!.write('\r\n\x1b[31m[process exited]\x1b[0m\r\n');
@@ -48,9 +101,30 @@
       if (ptyId) terminal.resize(ptyId, rows, cols);
     });
 
-    const onResize = () => fit?.fit();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    // Track parent size changes (splitter drag, sidebar collapse, etc.)
+    // and re-fit. ResizeObserver can fire many times per second during a
+    // splitter drag — coalesce to one refit per animation frame so we
+    // don't flood the daemon with terminal.resize IPC calls (which
+    // queue + back up otherwise, making drag feel sluggish).
+    let pendingRefit = false;
+    const scheduleRefit = () => {
+      if (pendingRefit) return;
+      pendingRefit = true;
+      requestAnimationFrame(() => {
+        pendingRefit = false;
+        refit();
+      });
+    };
+    const ro = new ResizeObserver(scheduleRefit);
+    ro.observe(containerEl);
+
+    const onWinResize = () => scheduleRefit();
+    window.addEventListener('resize', onWinResize);
+
+    return () => {
+      window.removeEventListener('resize', onWinResize);
+      ro.disconnect();
+    };
   });
 
   onDestroy(async () => {

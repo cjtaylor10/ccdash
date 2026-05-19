@@ -38,6 +38,17 @@ pub fn handle_handshake(
 }
 
 pub async fn handle_project_list(state: &AppState) -> ProjectListResult {
+    // Refresh worktrees on every list call so daemon restarts + on-disk
+    // worktree changes (git worktree add/remove from outside) get picked up
+    // automatically. The git call is cheap (~milliseconds for typical repos).
+    let projects = state.projects.list().await;
+    for p in &projects {
+        if p.state != ccdash_core::domain::ProjectState::Missing {
+            if let Ok(wts) = crate::worktrees::list(&p.path).await {
+                state.projects.set_worktrees(&p.id, wts).await;
+            }
+        }
+    }
     ProjectListResult {
         projects: state.projects.list().await,
     }
@@ -69,6 +80,23 @@ pub async fn handle_project_add(
     Ok(updated)
 }
 
+pub async fn handle_project_reorder(
+    params: ccdash_core::protocol::ProjectReorderParams,
+    state: &AppState,
+) -> Result<(), RpcError> {
+    state
+        .projects
+        .reorder(&params.ids)
+        .await
+        .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+    // Re-broadcast the updated list so clients can refresh.
+    let projects = state.projects.list().await;
+    for p in projects {
+        state.bus.publish(Event::ProjectUpdated { project: p });
+    }
+    Ok(())
+}
+
 pub async fn handle_project_remove(
     params: ProjectRemoveParams,
     state: &AppState,
@@ -86,11 +114,51 @@ pub async fn handle_project_remove(
 }
 
 pub async fn handle_session_list(state: &AppState) -> Result<SessionListResult, RpcError> {
-    let (current, _) = state
+    let (mut current, removed) = state
         .sessions
         .refresh()
         .await
         .map_err(|e| err(E_INTERNAL, e.to_string()))?;
+    // Forget metadata for sessions that no longer exist in tmux. Without
+    // this, sessions.toml grows unbounded — leaking entries for every
+    // launched-then-killed session.
+    for id in &removed {
+        let _ = state.sessions.forget(id).await;
+        state.bus.publish(Event::SessionRemoved {
+            tmux_session_id: id.clone(),
+        });
+    }
+    // Stamp `project_id` on orphan sessions (those started outside ccdash,
+    // so `sessions.toml` has no metadata for them) by matching their `cwd`
+    // against each project's path and worktree paths. Longest-prefix wins
+    // so a worktree nested inside a parent project isn't stolen by the
+    // parent. With this, the UI's simple `project_id === projectId` filter
+    // is enough — no inference logic needed on the frontend.
+    let projects = state.projects.list().await;
+    for s in current.iter_mut() {
+        if s.project_id.is_some() {
+            continue;
+        }
+        let mut best: Option<(ProjectId, usize)> = None;
+        for p in &projects {
+            let mut candidates: Vec<&std::path::Path> = Vec::with_capacity(1 + p.worktrees.len());
+            candidates.push(p.path.as_path());
+            for w in &p.worktrees {
+                candidates.push(w.path.as_path());
+            }
+            for c in candidates {
+                if s.cwd.starts_with(c) {
+                    let len = c.as_os_str().len();
+                    if best.as_ref().map(|(_, l)| len > *l).unwrap_or(true) {
+                        best = Some((p.id.clone(), len));
+                    }
+                }
+            }
+        }
+        if let Some((id, _)) = best {
+            s.project_id = Some(id);
+        }
+    }
     Ok(SessionListResult { sessions: current })
 }
 
@@ -180,7 +248,7 @@ pub async fn handle_session_launch(
     let safe_proj = sanitize(&project.name);
     let name = format!("ccdash_{}_{}", safe_proj, safe_wt);
 
-    let session_id = tmux::new_session(&name, &cwd, &cmd)
+    let (session_id, actual_name) = tmux::new_session(&name, &cwd, &cmd)
         .await
         .map_err(|e| err(E_INTERNAL, e.to_string()))?;
     state
@@ -199,7 +267,7 @@ pub async fn handle_session_launch(
         .find(|s| s.tmux_session_id == session_id)
         .unwrap_or_else(|| Session {
             tmux_session_id: session_id,
-            name,
+            name: actual_name,
             project_id: Some(project.id.clone()),
             worktree: None,
             cwd,
@@ -229,6 +297,44 @@ pub async fn handle_session_kill(
         tmux_session_id: params.tmux_session_id,
     });
     Ok(())
+}
+
+pub async fn handle_first_run_status(
+    state: &AppState,
+) -> ccdash_core::protocol::FirstRunStatusResult {
+    ccdash_core::protocol::FirstRunStatusResult {
+        pending: state
+            .first_run_pending
+            .load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+pub async fn handle_first_run_complete(state: &AppState) {
+    state
+        .first_run_pending
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub async fn handle_scan_paths(
+    params: ccdash_core::protocol::ScanPathsParams,
+    _state: &AppState,
+) -> ccdash_core::protocol::ScanPathsResult {
+    let found = crate::projects::scanner::scan(&params.roots).await;
+    let discovered = found
+        .into_iter()
+        .map(|path| {
+            let suggested_name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("repo")
+                .to_string();
+            ccdash_core::protocol::DiscoveredRepo {
+                path,
+                suggested_name,
+            }
+        })
+        .collect();
+    ccdash_core::protocol::ScanPathsResult { discovered }
 }
 
 pub async fn handle_plans_get(

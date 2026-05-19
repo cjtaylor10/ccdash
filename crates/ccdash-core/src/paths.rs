@@ -53,9 +53,17 @@ pub fn auth_token_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Env-var tests must be serialized — Rust's test runner parallelizes by
+    // default but the process env is process-global. Without this, two
+    // tests setting/removing the same var race and the assertion sees
+    // whatever the other test happened to leave behind.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn data_dir_honors_ccdash_home() {
+        let _g = ENV_LOCK.lock().unwrap();
         std::env::set_var("CCDASH_HOME", "/tmp/ccdash-test");
         assert_eq!(data_dir(), PathBuf::from("/tmp/ccdash-test"));
         std::env::remove_var("CCDASH_HOME");
@@ -63,6 +71,7 @@ mod tests {
 
     #[test]
     fn projects_toml_is_under_data_dir() {
+        let _g = ENV_LOCK.lock().unwrap();
         std::env::set_var("CCDASH_HOME", "/tmp/ccdash-test");
         assert_eq!(
             projects_toml(),
@@ -73,6 +82,7 @@ mod tests {
 
     #[test]
     fn socket_honors_ccdash_socket() {
+        let _g = ENV_LOCK.lock().unwrap();
         std::env::set_var("CCDASH_SOCKET", "/tmp/explicit.sock");
         assert_eq!(default_socket_path(), PathBuf::from("/tmp/explicit.sock"));
         std::env::remove_var("CCDASH_SOCKET");

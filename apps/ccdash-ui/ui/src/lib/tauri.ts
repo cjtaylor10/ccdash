@@ -1,5 +1,31 @@
 import { invoke } from '@tauri-apps/api/core';
 
+/** Structured error returned by every RPC-proxying Tauri command.
+ * Tauri's invoke() rejects with the unwrapped error object (not wrapped in
+ * Error). The shape is `{ message, data? }` matching the Rust `UiRpcError`. */
+export interface UiRpcError {
+  message: string;
+  data?: unknown;
+}
+
+/** Type guard for the structured RPC error shape. */
+export function isUiRpcError(e: unknown): e is UiRpcError {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    'message' in e &&
+    typeof (e as { message: unknown }).message === 'string'
+  );
+}
+
+/** Read `e.data` as PortConflictData if the shape matches. */
+export function asPortConflict(e: unknown): PortConflictData | null {
+  if (!isUiRpcError(e) || e.data == null) return null;
+  const d = e.data as { conflicts?: unknown; force_token?: unknown };
+  if (!Array.isArray(d.conflicts) || typeof d.force_token !== 'string') return null;
+  return { conflicts: d.conflicts as PortConflict[], force_token: d.force_token };
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -78,6 +104,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export const windows = {
   openNew: () => invoke<void>('open_new_window'),
+  /** Pop a tmux session out into its own dedicated window (auto-attaches). */
+  openTerminal: (sessionId: string, sessionName: string) =>
+    invoke<void>('open_terminal_window', { sessionId, sessionName }),
   list: () => invoke<string[]>('list_windows'),
   publishState: (from: string, state: unknown) =>
     invoke<void>('publish_window_state', { from, state }),
@@ -87,4 +116,80 @@ export const windows = {
   ): Promise<UnlistenFn> =>
     tauriListen<T>(`window-state-broadcast::${from}`, (e) => handler(e.payload)),
   currentLabel: () => getCurrentWindow().label,
+};
+
+/** Screenshot helpers — capture either the whole current window or an
+ *  arbitrary rect (CSS pixels, relative to the window's client area) and
+ *  copy the result to the system clipboard. macOS only for now. */
+export const screenshot = {
+  window: () =>
+    invoke<void>('screenshot_window', { label: getCurrentWindow().label }),
+  region: (x: number, y: number, width: number, height: number) =>
+    invoke<void>('screenshot_region', {
+      label: getCurrentWindow().label,
+      x,
+      y,
+      width,
+      height,
+    }),
+};
+
+// === Phase 6: project + session management ===
+
+export interface PortConflict {
+  port: number;
+  holder: string;
+}
+
+export interface PortConflictData {
+  conflicts: PortConflict[];
+  force_token: string;
+}
+
+export const projectsApi = {
+  add: (path: string, name?: string) =>
+    invoke<Project>('project_add', { path, name }),
+  remove: (id: string) => invoke<null>('project_remove', { id }),
+  reorder: (ids: string[]) => invoke<unknown>('project_reorder', { ids }),
+};
+
+// === Phase 8: first-run / onboarding ===
+
+export interface DiscoveredRepo {
+  path: string;
+  suggested_name: string;
+}
+
+export const daemonApi = {
+  firstRunStatus: () => invoke<{ pending: boolean }>('first_run_status'),
+  firstRunComplete: () => invoke<unknown>('first_run_complete'),
+  scanPaths: (roots: string[]) =>
+    invoke<{ discovered: DiscoveredRepo[] }>('scan_paths', { roots }),
+};
+
+// === Phase 9: browser preview helpers ===
+
+/** Open `url` in the system's default browser via tauri-plugin-shell. */
+export async function openExternal(url: string): Promise<void> {
+  const { open } = await import('@tauri-apps/plugin-shell');
+  await open(url);
+}
+
+export interface LaunchOpts {
+  projectId: string;
+  worktree?: string;
+  command?: string;
+  forceToken?: string;
+}
+
+export const sessionsApi = {
+  launch: (opts: LaunchOpts) =>
+    invoke<{ session: Session }>('session_launch', {
+      projectId: opts.projectId,
+      worktree: opts.worktree,
+      command: opts.command,
+      forceToken: opts.forceToken,
+    }),
+  kill: (tmuxSessionId: string) =>
+    invoke<null>('session_kill', { tmuxSessionId }),
 };

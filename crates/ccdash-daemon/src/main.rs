@@ -15,8 +15,55 @@ use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+/// launchd / systemd give us a minimal PATH that may not include the
+/// Homebrew bin dirs where `tmux` + `lsof` live. Augment PATH defensively
+/// so the daemon can spawn its subprocesses regardless of how it was started.
+fn augment_path() {
+    const NEEDED: &[&str] = &[
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ];
+    let existing = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<String> = existing.split(':').map(String::from).collect();
+    for need in NEEDED {
+        if !parts.iter().any(|p| p == need) {
+            parts.push((*need).to_string());
+        }
+    }
+    // Also add ~/.local/bin — common location for `claude`, `pipx`-installed
+    // tools, and other user-local installs.
+    if let Ok(home) = std::env::var("HOME") {
+        let local_bin = format!("{}/.local/bin", home);
+        if !parts.iter().any(|p| p == &local_bin) {
+            parts.push(local_bin);
+        }
+    }
+    std::env::set_var("PATH", parts.join(":"));
+}
+
+/// Ensure a UTF-8 locale is set. Without LC_CTYPE/LANG, tmux's `-F` format
+/// output replaces non-printable bytes (including TAB!) with underscores —
+/// which silently breaks our pane parser. launchd strips locale env on
+/// macOS, so this matters in practice. Default to C.UTF-8 if neither is set.
+fn ensure_locale() {
+    let has_locale = std::env::var("LC_ALL").is_ok()
+        || std::env::var("LC_CTYPE").is_ok()
+        || std::env::var("LANG").is_ok();
+    if !has_locale {
+        std::env::set_var("LC_CTYPE", "UTF-8");
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    augment_path();
+    ensure_locale();
     let cfg = config::Config::parse();
 
     tracing_subscriber::fmt()

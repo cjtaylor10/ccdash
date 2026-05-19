@@ -4,7 +4,27 @@ use crate::client_state::ClientState;
 use ccdash_core::client::Client;
 use ccdash_core::protocol::ClientKind;
 use serde_json::Value;
+use std::ops::DerefMut;
 use tauri::State;
+
+/// Structured error returned by every RPC-proxying Tauri command.
+/// Carries both the daemon's error message and its `data` payload (e.g.
+/// `PortConflictData`) so the frontend can offer remediation actions.
+#[derive(Debug, serde::Serialize)]
+pub struct UiRpcError {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+}
+
+impl UiRpcError {
+    fn message(msg: impl Into<String>) -> Self {
+        Self {
+            message: msg.into(),
+            data: None,
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn connect_and_handshake(state: State<'_, ClientState>) -> Result<String, String> {
@@ -26,42 +46,114 @@ pub async fn connect_and_handshake(state: State<'_, ClientState>) -> Result<Stri
     Ok("connected".into())
 }
 
-async fn call_method(
-    state: &State<'_, ClientState>,
+/// True if the error string looks like a broken Unix-socket transport
+/// (broken pipe, connection reset, EOF, etc.) — the kind of failure that
+/// goes away after a fresh reconnect. Used to decide whether to drop the
+/// stale Client and retry the call once.
+fn is_transport_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("writing request")
+        || m.contains("reading line")
+        || m.contains("daemon closed connection")
+        || m.contains("broken pipe")
+        || m.contains("connection reset")
+        || m.contains("connection refused")
+}
+
+async fn call_once_inner(
+    client: &mut Client,
     method: &str,
     params: Value,
-) -> Result<Value, String> {
-    let mut guard = state.inner.lock().await;
-    let client = guard
-        .as_mut()
-        .ok_or_else(|| "daemon not connected — call connect_and_handshake first".to_string())?;
+) -> Result<Value, UiRpcError> {
     let resp = client
         .call(method, params)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| UiRpcError::message(e.to_string()))?;
     if let Some(err) = resp.error {
-        return Err(err.message);
+        return Err(UiRpcError {
+            message: err.message,
+            data: err.data,
+        });
     }
     Ok(resp.result.unwrap_or(Value::Null))
 }
 
+/// Open a fresh connection to the daemon, handshake, and store it on the
+/// shared `ClientState`. Returns an error if either step fails. Caller
+/// holds the `ClientState` lock for the duration so we don't race other
+/// in-flight calls.
+async fn reconnect(guard: &mut tokio::sync::MutexGuard<'_, Option<Client>>) -> Result<(), String> {
+    *guard.deref_mut() = None;
+    let mut fresh = Client::connect_default()
+        .await
+        .map_err(|e| format!("reconnect failed: {}", e))?;
+    let resp = fresh
+        .handshake(ClientKind::Ui)
+        .await
+        .map_err(|e| format!("reconnect handshake failed: {}", e))?;
+    if let Some(err) = resp.error {
+        return Err(format!("reconnect rejected: {}", err.message));
+    }
+    *guard.deref_mut() = Some(fresh);
+    Ok(())
+}
+
+async fn call_method(
+    state: &State<'_, ClientState>,
+    method: &str,
+    params: Value,
+) -> Result<Value, UiRpcError> {
+    let mut guard = state.inner.lock().await;
+    // First attempt against the cached client.
+    let first_err = {
+        let client = guard.as_mut().ok_or_else(|| {
+            UiRpcError::message("daemon not connected — call connect_and_handshake first")
+        })?;
+        match call_once_inner(client, method, params.clone()).await {
+            Ok(v) => return Ok(v),
+            Err(e) => e,
+        }
+    };
+    // Transparent reconnect-and-retry on transport-level failures only.
+    // Application-level errors (PortConflict, bad params, etc.) bubble as-is.
+    if !is_transport_error(&first_err.message) {
+        return Err(first_err);
+    }
+    tracing::warn!(
+        "transport error on {}: {} — reconnecting and retrying once",
+        method,
+        first_err.message
+    );
+    if let Err(e) = reconnect(&mut guard).await {
+        return Err(UiRpcError::message(format!(
+            "{} (and reconnect failed: {})",
+            first_err.message, e
+        )));
+    }
+    let client = guard.as_mut().expect("reconnect filled the slot");
+    call_once_inner(client, method, params).await
+}
+
 #[tauri::command]
-pub async fn project_list(state: State<'_, ClientState>) -> Result<Value, String> {
+pub async fn project_list(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
     call_method(&state, "project.list", serde_json::json!({})).await
 }
 
 #[tauri::command]
-pub async fn session_list(state: State<'_, ClientState>) -> Result<Value, String> {
+pub async fn session_list(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
     call_method(&state, "session.list", serde_json::json!({})).await
 }
 
 #[tauri::command]
-pub async fn ports_list(state: State<'_, ClientState>) -> Result<Value, String> {
+pub async fn ports_list(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
     call_method(&state, "ports.list", serde_json::json!({})).await
 }
 
 #[tauri::command]
-pub async fn plans_get(state: State<'_, ClientState>, project_id: String) -> Result<Value, String> {
+pub async fn plans_get(
+    state: State<'_, ClientState>,
+    project_id: String,
+) -> Result<Value, UiRpcError> {
     call_method(
         &state,
         "plans.get",
@@ -117,6 +209,15 @@ pub async fn open_new_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_terminal_window(
+    app: tauri::AppHandle,
+    session_id: String,
+    session_name: String,
+) -> Result<(), String> {
+    crate::windows::open_terminal_window(&app, &session_id, &session_name)
+}
+
+#[tauri::command]
 pub async fn list_windows(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     use tauri::Manager;
     Ok(app.webview_windows().into_keys().collect::<Vec<_>>())
@@ -131,6 +232,98 @@ pub async fn publish_window_state(
     use tauri::Emitter;
     app.emit(&format!("window-state-broadcast::{}", from), state)
         .map_err(|e| e.to_string())
+}
+
+// === First-run / onboarding ===
+
+#[tauri::command]
+pub async fn first_run_status(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
+    call_method(&state, "daemon.first_run_status", serde_json::json!({})).await
+}
+
+#[tauri::command]
+pub async fn first_run_complete(state: State<'_, ClientState>) -> Result<Value, UiRpcError> {
+    call_method(&state, "daemon.first_run_complete", serde_json::json!({})).await
+}
+
+#[tauri::command]
+pub async fn scan_paths(
+    state: State<'_, ClientState>,
+    roots: Vec<String>,
+) -> Result<Value, UiRpcError> {
+    call_method(
+        &state,
+        "daemon.scan_paths",
+        serde_json::json!({ "roots": roots }),
+    )
+    .await
+}
+
+// === Project management ===
+
+#[tauri::command]
+pub async fn project_add(
+    state: State<'_, ClientState>,
+    path: String,
+    name: Option<String>,
+) -> Result<Value, UiRpcError> {
+    let mut params = serde_json::Map::new();
+    params.insert("path".into(), Value::String(path));
+    if let Some(n) = name {
+        params.insert("name".into(), Value::String(n));
+    }
+    call_method(&state, "project.add", Value::Object(params)).await
+}
+
+#[tauri::command]
+pub async fn project_remove(
+    state: State<'_, ClientState>,
+    id: String,
+) -> Result<Value, UiRpcError> {
+    call_method(&state, "project.remove", serde_json::json!({ "id": id })).await
+}
+
+#[tauri::command]
+pub async fn project_reorder(
+    state: State<'_, ClientState>,
+    ids: Vec<String>,
+) -> Result<Value, UiRpcError> {
+    call_method(&state, "project.reorder", serde_json::json!({ "ids": ids })).await
+}
+
+#[tauri::command]
+pub async fn session_launch(
+    state: State<'_, ClientState>,
+    project_id: String,
+    worktree: Option<String>,
+    command: Option<String>,
+    force_token: Option<String>,
+) -> Result<Value, UiRpcError> {
+    let mut params = serde_json::Map::new();
+    params.insert("project_id".into(), Value::String(project_id));
+    if let Some(w) = worktree {
+        params.insert("worktree".into(), Value::String(w));
+    }
+    if let Some(c) = command {
+        params.insert("command".into(), Value::String(c));
+    }
+    if let Some(t) = force_token {
+        params.insert("force_token".into(), Value::String(t));
+    }
+    call_method(&state, "session.launch", Value::Object(params)).await
+}
+
+#[tauri::command]
+pub async fn session_kill(
+    state: State<'_, ClientState>,
+    tmux_session_id: String,
+) -> Result<Value, UiRpcError> {
+    call_method(
+        &state,
+        "session.kill",
+        serde_json::json!({ "tmux_session_id": tmux_session_id }),
+    )
+    .await
 }
 
 /// Diagnostic: write a message to the daemon's ui log file. Used by the
