@@ -4,11 +4,11 @@
     activeTerminalSessionId,
     attachedSessions,
     projects,
-    resolvedProjectByTmuxId,
     selectedProjectId,
     sessions as sessionsStore,
   } from '$lib/stores';
   import { projectsApi, tauri } from '$lib/tauri';
+  import type { Project, Session } from '$lib/tauri';
   import { truncateBranch } from '$lib/format';
   import SidebarNav from './SidebarNav.svelte';
 
@@ -38,11 +38,91 @@
     expanded[id] = !expanded[id];
   }
 
+  /** True iff `cwd` equals `path` or sits beneath it. Avoids the
+   *  `/a/b` vs `/a/bb` false positive that a naive startsWith would have. */
+  function pathContains(cwd: string, path: string): boolean {
+    if (!cwd || !path) return false;
+    if (cwd === path) return true;
+    const prefix = path.endsWith('/') ? path : path + '/';
+    return cwd.startsWith(prefix);
+  }
+
+  /** Owning project per session. Prefers the daemon-stamped `project_id`
+   *  (set when ccdash launched the session) and falls back to a
+   *  longest-prefix match of the session's `cwd` against each project's
+   *  path and worktree paths — covers sessions started outside ccdash
+   *  whose `project_id` arrives `null`. Recomputed reactively whenever
+   *  `$sessionsStore` or `$projects` changes, so newly-launched sessions
+   *  pick up their attribution immediately. */
+  $: resolvedByTmuxId = (() => {
+    const out: Record<string, string | null> = {};
+    for (const s of $sessionsStore) {
+      if (s.project_id) {
+        out[s.tmux_session_id] = s.project_id;
+        continue;
+      }
+      let bestId: string | null = null;
+      let bestLen = -1;
+      for (const p of $projects) {
+        const paths = [p.path, ...p.worktrees.map((w) => w.path)];
+        for (const c of paths) {
+          if (pathContains(s.cwd, c) && c.length > bestLen) {
+            bestId = p.id;
+            bestLen = c.length;
+          }
+        }
+      }
+      out[s.tmux_session_id] = bestId;
+    }
+    return out;
+  })();
+
   function sessionsFor(projectId: string) {
     return $sessionsStore.filter(
-      (s) => $resolvedProjectByTmuxId.get(s.tmux_session_id) === projectId,
+      (s) => resolvedByTmuxId[s.tmux_session_id] === projectId,
     );
   }
+
+  /** Pick the worktree a session belongs to within its owning project.
+   *  Order: (1) match the daemon-stamped branch name `s.worktree` against
+   *  `worktree.branch`; (2) longest-prefix `cwd` match on `worktree.path`;
+   *  (3) fall back to the project's primary worktree so every session lands
+   *  in exactly one bucket — orphans stay visible under `main` instead of
+   *  silently disappearing. */
+  function resolveWorktreePath(s: Session, p: Project): string {
+    if (s.worktree) {
+      const byBranch = p.worktrees.find((w) => w.branch === s.worktree);
+      if (byBranch) return byBranch.path;
+    }
+    let bestPath: string | null = null;
+    let bestLen = -1;
+    for (const w of p.worktrees) {
+      if (pathContains(s.cwd, w.path) && w.path.length > bestLen) {
+        bestPath = w.path;
+        bestLen = w.path.length;
+      }
+    }
+    if (bestPath) return bestPath;
+    return (p.worktrees.find((w) => w.is_primary) ?? p.worktrees[0])?.path ?? '';
+  }
+
+  /** projectId → worktreePath → sessions in that worktree. Recomputed
+   *  reactively so newly-launched sessions appear in their bucket without
+   *  user action. Only consulted for multi-worktree projects; single-
+   *  worktree projects still render a flat sessions list. */
+  $: sessionsByWorktree = (() => {
+    const out: Record<string, Record<string, Session[]>> = {};
+    for (const p of $projects) out[p.id] = {};
+    for (const s of $sessionsStore) {
+      const pid = resolvedByTmuxId[s.tmux_session_id];
+      if (!pid) continue;
+      const proj = $projects.find((p) => p.id === pid);
+      if (!proj) continue;
+      const wpath = resolveWorktreePath(s, proj);
+      (out[pid][wpath] ??= []).push(s);
+    }
+    return out;
+  })();
 
   /** Attach (or switch to) a session — same semantics as the SessionsView
    *  click handler. Centralized here so the sidebar tree and the main view
@@ -193,6 +273,23 @@
   {#if errMsg}
     <div class="err">{errMsg}</div>
   {/if}
+  {#snippet sessionItem(s: Session, showBranchTag: boolean)}
+    <li
+      class:attached={$activeTerminalSessionId === s.tmux_session_id}
+      on:click|stopPropagation={() => attachSession(s.tmux_session_id)}
+      on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); attachSession(s.tmux_session_id); } }}
+      tabindex="0"
+      role="button"
+      title="Attach to {s.name}"
+    >
+      <span class="dot {s.state}"></span>
+      <span class="sess-name">{s.name}</span>
+      {#if showBranchTag && s.worktree}
+        <code class="sess-branch">{truncateBranch(s.worktree, 14)}</code>
+      {/if}
+    </li>
+  {/snippet}
+
   <ul>
     {#each $projects as p (p.id)}
       {@const projSessions = sessionsFor(p.id)}
@@ -242,31 +339,30 @@
           {#if p.worktrees.length > 1}
             <ul class="worktrees">
               {#each p.worktrees as wt (wt.path)}
+                {@const wtSessions = sessionsByWorktree[p.id]?.[wt.path] ?? []}
                 <li class:primary={wt.is_primary}>
-                  <span class="branch-mark"></span>
-                  <code title={wt.branch}>{truncateBranch(wt.branch)}</code>
-                  {#if wt.is_primary}<span class="tag">main</span>{/if}
+                  <div class="worktree-row">
+                    <span class="branch-mark"></span>
+                    <code title={wt.branch}>{truncateBranch(wt.branch)}</code>
+                    {#if wt.is_primary}<span class="tag">main</span>{/if}
+                    {#if wtSessions.length > 0}
+                      <span class="wt-count" title="{wtSessions.length} session{wtSessions.length === 1 ? '' : 's'}">{wtSessions.length}</span>
+                    {/if}
+                  </div>
+                  {#if wtSessions.length > 0}
+                    <ul class="sessions nested">
+                      {#each wtSessions as s (s.tmux_session_id)}
+                        {@render sessionItem(s, false)}
+                      {/each}
+                    </ul>
+                  {/if}
                 </li>
               {/each}
             </ul>
-          {/if}
-          {#if projSessions.length > 0}
+          {:else if projSessions.length > 0}
             <ul class="sessions">
               {#each projSessions as s (s.tmux_session_id)}
-                <li
-                  class:attached={$activeTerminalSessionId === s.tmux_session_id}
-                  on:click|stopPropagation={() => attachSession(s.tmux_session_id)}
-                  on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); attachSession(s.tmux_session_id); } }}
-                  tabindex="0"
-                  role="button"
-                  title="Attach to {s.name}"
-                >
-                  <span class="dot {s.state}"></span>
-                  <span class="sess-name">{s.name}</span>
-                  {#if s.worktree}
-                    <code class="sess-branch">{truncateBranch(s.worktree, 14)}</code>
-                  {/if}
-                </li>
+                {@render sessionItem(s, true)}
               {/each}
             </ul>
           {/if}
@@ -440,15 +536,18 @@
     margin: 0 0 6px;
     padding: 2px 12px 4px 46px;
   }
-  .worktrees li {
+  .worktrees > li {
+    padding: 0;
+    font-size: 11px;
+    color: var(--fg-dim);
+  }
+  .worktrees > li.primary { color: var(--fg); }
+  .worktree-row {
     display: flex;
     align-items: center;
     gap: 6px;
     padding: 3px 0;
-    font-size: 11px;
-    color: var(--fg-dim);
   }
-  .worktrees li.primary { color: var(--fg); }
   .branch-mark {
     width: 4px;
     height: 4px;
@@ -456,10 +555,21 @@
     background: var(--fg-mute);
     flex-shrink: 0;
   }
-  .worktrees li.primary .branch-mark { background: var(--accent); }
+  .worktrees > li.primary .branch-mark { background: var(--accent); }
   .worktrees code {
     font-family: var(--mono);
     font-size: 11px;
+  }
+  .wt-count {
+    margin-left: auto;
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--state-running);
+    background: var(--accent-bg);
+    padding: 0 5px;
+    border-radius: 8px;
+    min-width: 14px;
+    text-align: center;
   }
   .tag {
     font-size: 9px;
@@ -472,11 +582,19 @@
     margin-left: 2px;
   }
 
-  /* Sessions list under each project */
+  /* Sessions list under each project (flat — single-worktree projects). */
   .sessions {
     list-style: none;
     margin: 0 0 6px;
     padding: 0 12px 4px 46px;
+  }
+  /* Sessions list nested inside a worktree group (multi-worktree projects).
+   * Indented one extra step past the worktree row with a subtle left-guide
+   * so the parent → child relationship reads at a glance. */
+  .sessions.nested {
+    margin: 1px 0 4px 1px;
+    padding: 0 0 2px 16px;
+    border-left: 1px solid var(--border);
   }
   .sessions li {
     display: flex;
