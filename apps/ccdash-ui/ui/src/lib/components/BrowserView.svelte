@@ -4,6 +4,7 @@
     browserPaneSubtabByPaneId,
     browserStateBySession,
     detectedUrlsBySession,
+    resolvedProjectByTmuxId,
     selectedProjectId,
     sessions,
   } from '$lib/stores';
@@ -17,16 +18,16 @@
 
   $: hasActiveSubtab = viewSession !== null;
 
-  /** Attached sessions that belong to the currently-selected project. When
-   *  no project is selected, fall back to every attached session. */
+  /** Attached sessions that belong to the currently-selected project.
+   *  Uses the shared `resolvedProjectByTmuxId` lookup so sessions started
+   *  outside ccdash (no daemon-stamped `project_id`) are still attributed
+   *  via cwd inference — same logic the sidebar tree uses. When no project
+   *  is selected, every attached session is in scope. */
   $: inScopeSessions = (() => {
     const pid = $selectedProjectId;
-    const allSessions = $sessions;
-    return $attachedSessions.filter((t) => {
-      if (pid === null) return true;
-      const sess = allSessions.find((s) => s.tmux_session_id === t.sessionId);
-      return sess?.project_id === pid;
-    });
+    if (pid === null) return $attachedSessions;
+    const resolved = $resolvedProjectByTmuxId;
+    return $attachedSessions.filter((t) => resolved.get(t.sessionId) === pid);
   })();
 
   /** This pane's selected sub-tab. Reads from the per-pane map; if stale

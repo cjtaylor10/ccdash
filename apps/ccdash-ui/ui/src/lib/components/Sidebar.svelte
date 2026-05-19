@@ -4,6 +4,7 @@
     activeTerminalSessionId,
     attachedSessions,
     projects,
+    resolvedProjectByTmuxId,
     selectedProjectId,
     sessions as sessionsStore,
   } from '$lib/stores';
@@ -37,43 +38,9 @@
     expanded[id] = !expanded[id];
   }
 
-  /** True iff `cwd` is `path` itself or sits beneath it. Avoids the
-   *  /a/b vs /a/bb false positive that a naive startsWith would have. */
-  function pathContains(cwd: string, path: string): boolean {
-    if (!cwd || !path) return false;
-    if (cwd === path) return true;
-    const prefix = path.endsWith('/') ? path : path + '/';
-    return cwd.startsWith(prefix);
-  }
-
-  /** Resolve a session's owning project: prefer the daemon-stamped
-   *  `project_id` (set when ccdash launched it), otherwise infer from the
-   *  session's `cwd` against project + worktree paths, longest-prefix
-   *  wins so a worktree inside a parent project doesn't lose to it. */
-  $: resolvedProjectByTmuxId = (() => {
-    const map = new Map<string, string | null>();
-    for (const s of $sessionsStore) {
-      if (s.project_id) {
-        map.set(s.tmux_session_id, s.project_id);
-        continue;
-      }
-      let best: { id: string; len: number } | null = null;
-      for (const p of $projects) {
-        const candidates = [p.path, ...p.worktrees.map((w) => w.path)];
-        for (const c of candidates) {
-          if (pathContains(s.cwd, c) && (!best || c.length > best.len)) {
-            best = { id: p.id, len: c.length };
-          }
-        }
-      }
-      map.set(s.tmux_session_id, best?.id ?? null);
-    }
-    return map;
-  })();
-
   function sessionsFor(projectId: string) {
     return $sessionsStore.filter(
-      (s) => resolvedProjectByTmuxId.get(s.tmux_session_id) === projectId,
+      (s) => $resolvedProjectByTmuxId.get(s.tmux_session_id) === projectId,
     );
   }
 

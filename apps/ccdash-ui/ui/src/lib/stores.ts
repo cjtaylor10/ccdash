@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { derived, writable } from 'svelte/store';
 import type { Plan, PortBinding, Project, DeclaredPort, Session } from './tauri';
 
 export const connected = writable<boolean>(false);
@@ -12,6 +12,48 @@ export const ports = writable<{ running: PortBinding[]; declared: DeclaredPort[]
   declared: [],
 });
 export const plans = writable<Plan[]>([]);
+
+/** True iff `cwd` equals `path` or sits beneath it. Avoids the
+ *  `/a/b` vs `/a/bb` false positive that a naive startsWith would have. */
+export function pathContains(cwd: string, path: string): boolean {
+  if (!cwd || !path) return false;
+  if (cwd === path) return true;
+  const prefix = path.endsWith('/') ? path : path + '/';
+  return cwd.startsWith(prefix);
+}
+
+/** Map of `tmux_session_id` → owning project id (or null if none can be
+ *  inferred). Prefers the daemon-stamped `project_id`, falling back to a
+ *  longest-prefix match of the session's `cwd` against each project's path
+ *  and worktree paths — so sessions started outside ccdash (with no
+ *  `project_id` stamp) still attribute correctly.
+ *
+ *  Shared between Sidebar (for grouping sessions under their project) and
+ *  BrowserView (for the project-scoped sub-tab filter), so both views see
+ *  the same attribution. */
+export const resolvedProjectByTmuxId = derived(
+  [sessions, projects],
+  ([$sessions, $projects]) => {
+    const map = new Map<string, string | null>();
+    for (const s of $sessions) {
+      if (s.project_id) {
+        map.set(s.tmux_session_id, s.project_id);
+        continue;
+      }
+      let best: { id: string; len: number } | null = null;
+      for (const p of $projects) {
+        const candidates = [p.path, ...p.worktrees.map((w) => w.path)];
+        for (const c of candidates) {
+          if (pathContains(s.cwd, c) && (!best || c.length > best.len)) {
+            best = { id: p.id, len: c.length };
+          }
+        }
+      }
+      map.set(s.tmux_session_id, best?.id ?? null);
+    }
+    return map;
+  },
+);
 
 /** Loopback URLs detected from terminal output, grouped by the tmux session
  *  id that emitted them. A `null` key collects URLs derived from the
