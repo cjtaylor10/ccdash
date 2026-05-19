@@ -3,7 +3,9 @@
   import {
     activeTerminalSessionId,
     attachedSessions,
+    pathContains,
     projects,
+    resolvedProjectByTmuxId,
     selectedProjectId,
     sessions as sessionsStore,
   } from '$lib/stores';
@@ -38,48 +40,9 @@
     expanded[id] = !expanded[id];
   }
 
-  /** True iff `cwd` equals `path` or sits beneath it. Avoids the
-   *  `/a/b` vs `/a/bb` false positive that a naive startsWith would have. */
-  function pathContains(cwd: string, path: string): boolean {
-    if (!cwd || !path) return false;
-    if (cwd === path) return true;
-    const prefix = path.endsWith('/') ? path : path + '/';
-    return cwd.startsWith(prefix);
-  }
-
-  /** Owning project per session. Prefers the daemon-stamped `project_id`
-   *  (set when ccdash launched the session) and falls back to a
-   *  longest-prefix match of the session's `cwd` against each project's
-   *  path and worktree paths — covers sessions started outside ccdash
-   *  whose `project_id` arrives `null`. Recomputed reactively whenever
-   *  `$sessionsStore` or `$projects` changes, so newly-launched sessions
-   *  pick up their attribution immediately. */
-  $: resolvedByTmuxId = (() => {
-    const out: Record<string, string | null> = {};
-    for (const s of $sessionsStore) {
-      if (s.project_id) {
-        out[s.tmux_session_id] = s.project_id;
-        continue;
-      }
-      let bestId: string | null = null;
-      let bestLen = -1;
-      for (const p of $projects) {
-        const paths = [p.path, ...p.worktrees.map((w) => w.path)];
-        for (const c of paths) {
-          if (pathContains(s.cwd, c) && c.length > bestLen) {
-            bestId = p.id;
-            bestLen = c.length;
-          }
-        }
-      }
-      out[s.tmux_session_id] = bestId;
-    }
-    return out;
-  })();
-
   function sessionsFor(projectId: string) {
     return $sessionsStore.filter(
-      (s) => resolvedByTmuxId[s.tmux_session_id] === projectId,
+      (s) => $resolvedProjectByTmuxId.get(s.tmux_session_id) === projectId,
     );
   }
 
@@ -114,7 +77,7 @@
     const out: Record<string, Record<string, Session[]>> = {};
     for (const p of $projects) out[p.id] = {};
     for (const s of $sessionsStore) {
-      const pid = resolvedByTmuxId[s.tmux_session_id];
+      const pid = $resolvedProjectByTmuxId.get(s.tmux_session_id);
       if (!pid) continue;
       const proj = $projects.find((p) => p.id === pid);
       if (!proj) continue;
